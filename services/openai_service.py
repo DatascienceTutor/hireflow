@@ -83,7 +83,7 @@ def _build_generation_prompt(job_description: str, n_questions: int = 5) -> str:
         "You are an expert technical interviewer and content generator. "
         "Produce high-quality interview questions and reference answers for the specified job description. "
         "Output MUST be valid JSON — an array of objects. Each object must contain keys: "
-        "'prompt' (string), 'reference_answer' (string), 'keywords' (array of short strings). "
+        "'question' (string), 'answer' (string), 'keywords' (array of short strings). "
         "Do NOT include any other keys or explanatory text outside the JSON array."
     )
     user = (
@@ -102,7 +102,7 @@ def generate_knowledge_for_tech(
 ) -> List[Dict[str, Any]]:
     """
     Generate n_questions knowledge items for the given 'tech' using OpenAI chat completions.
-    Returns a list of dicts: {'prompt','reference_answer','keywords'}.
+    Returns a list of dicts: {'question','answer','keywords'}.
 
     Raises RuntimeError if API key not configured or if output cannot be parsed.
     """
@@ -118,7 +118,9 @@ def generate_knowledge_for_tech(
         attempt += 1
         try:
             client = OpenAI()
-            print(client.models.list())
+            # (optional) avoid listing models on every call — it can be slow and isn't needed for generation
+            # response = client.models.list()  # remove or uncomment for debugging
+
             response = client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[
@@ -129,19 +131,35 @@ def generate_knowledge_for_tech(
                 max_tokens=2500,
                 n=1,
             )
+
+            # ACCESS THE CONTENT CORRECTLY:
+            # 'message' is a ChatCompletionMessage object; access .content attribute instead of indexing.
             text = ""
-            # Get the assistant text
-            text = response.choices[0].message["content"]
+            if hasattr(response, "choices") and len(response.choices) > 0:
+                # support both object-style and dict-like access just in case
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    text = choice.message.content
+                elif isinstance(choice, dict) and "message" in choice:
+                    # fallback if the response is a plain dict
+                    msg = choice["message"]
+                    if isinstance(msg, dict):
+                        text = msg.get("content", "")
+                    else:
+                        # last resort: try attribute
+                        text = getattr(msg, "content", "")
+                else:
+                    # fallback to raw text fields if present
+                    text = getattr(choice, "text", "")
+            else:
+                raise RuntimeError("OpenAI response didn't contain any choices.")
+
             parsed = _safe_parse_json(text)
             if parsed is None:
-                # If parsing fails, attempt a second-pass: ask the model to return only JSON
-                # Not ideal to call again blindly; but we can do a retry loop
-                logging.warning(
-                    "OpenAI response JSON parse failed. Attempting fallback."
-                )
+                logging.warning("OpenAI response JSON parse failed. Attempting fallback.")
 
-                # Try a second call instructing to only return JSON (shorter response)
-                fallback_prompt = (
+                # Use a clear fallback prompt and actually send it
+                fallback_user = (
                     "You previously returned an invalid format. Return ONLY the JSON array, nothing else. "
                     f"Array must contain {n_questions} items with keys prompt, reference_answer, keywords."
                 )
@@ -150,17 +168,34 @@ def generate_knowledge_for_tech(
                     messages=[
                         {"role": "system", "content": sys_msg},
                         {"role": "user", "content": user_msg},
+                        {"role": "user", "content": fallback_user},
                     ],
-                    temperature=0.2,
+                    temperature=0.0,
                     max_tokens=2500,
                     n=1,
                 )
-                text2 = response2.choices[0].message["content"]
+
+                # extract text from second response similarly
+                text2 = ""
+                if hasattr(response2, "choices") and len(response2.choices) > 0:
+                    c2 = response2.choices[0]
+                    if hasattr(c2, "message") and hasattr(c2.message, "content"):
+                        text2 = c2.message.content
+                    elif isinstance(c2, dict) and "message" in c2:
+                        msg = c2["message"]
+                        if isinstance(msg, dict):
+                            text2 = msg.get("content", "")
+                        else:
+                            text2 = getattr(msg, "content", "")
+                    else:
+                        text2 = getattr(c2, "text", "")
+
                 parsed = _safe_parse_json(text2)
                 if parsed is None:
                     raise RuntimeError("Failed to parse JSON from OpenAI output.")
-            # Validate shape
-            items = []
+
+            # Validate shape and normalize
+            items: List[Dict[str, Any]] = []
             if not isinstance(parsed, list):
                 raise RuntimeError("Parsed output is not a JSON list.")
             for it in parsed:
@@ -171,18 +206,18 @@ def generate_knowledge_for_tech(
                 kws = it.get("keywords") or []
 
                 if isinstance(kws, str):
-                    # attempt to split by commas
                     kws = [k.strip() for k in kws.split(",") if k.strip()]
-                # ensure prompt and ref present
+
                 items.append(
                     {
-                        "prompt": str(prompt).strip(),
-                        "reference_answer": str(ref).strip(),
+                        "question": str(prompt).strip(),
+                        "answer": str(ref).strip(),
                         "keywords": [str(k).strip() for k in (kws or [])],
                     }
                 )
-            # If fewer items than requested, it's okay — return whatever we have
+
             return items
+
         except Exception as exc:
             logging.exception("OpenAI generation attempt failed: %s", exc)
             if attempt > max_retries:
@@ -190,5 +225,6 @@ def generate_knowledge_for_tech(
                     f"OpenAI generation failed after {attempt} attempts: {exc}"
                 ) from exc
             time.sleep(1 + attempt * 1.5)
-    # fallback
+
     raise RuntimeError("OpenAI generation failed unexpectedly.")
+

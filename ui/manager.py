@@ -3,6 +3,10 @@ Hiring manager dashboard (post-login).
 """
 
 import streamlit as st
+from typing import List, Dict, Any
+import contextlib
+import json
+import logging
 import contextlib
 import pandas as pd
 import numpy as np
@@ -19,6 +23,33 @@ from models.candidate import Candidate
 from streamlit_searchbox import st_searchbox
 import re
 from services.openai_service import generate_knowledge_for_tech
+from models.knowledge_question import KnowledgeQuestion
+
+def save_questions_to_db(db_session, job_code: str, items: List[Dict[str, Any]]) -> int:
+    """
+    Persist the generated Q&A items to the KnowledgeQuestion table.
+    Returns number of inserted rows.
+    """
+    inserted = 0
+    for it in items:
+        try:
+            kk = KnowledgeQuestion(
+                job_code=job_code,
+                prompt=it.get("prompt") or "",
+                reference_answer=it.get("reference_answer") or "",
+                # store keywords as JSON text (adjust if your model uses JSON column)
+                keywords=json.dumps(it.get("keywords") or []),
+            )
+            db_session.add(kk)
+            inserted += 1
+        except Exception as e:
+            logging.exception("Failed to create KnowledgeQuestion: %s", e)
+    try:
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+    return inserted
 
 
 def get_unique_column_values(db: Session, table_class, column_names: list[str]) -> list:
@@ -50,9 +81,6 @@ def get_unique_column_values(db: Session, table_class, column_names: list[str]) 
         return unique_values  # List of tuples for multiple columns
 
 
-# job_codes = get_unique_column_values(db, Job, "job_code")
-# titles = get_unique_column_values(db, Job, "title")
-
 
 def get_column_value_by_condition(
     db: Session, table_class, filter_column: str, filter_value: str, target_column: str
@@ -78,9 +106,6 @@ def get_column_value_by_condition(
     record = db.query(table_class).filter(filter_col == filter_value).first()
 
     return getattr(record, target_column) if record else None
-
-
-# job_description = get_column_value_by_condition(db, Job, "job_code", "JD-2025-001", "description")
 
 
 def create_searchbox(
@@ -319,13 +344,20 @@ def render_generate_questions():
         unsafe_allow_html=True,
     )
 
+    # initialize session state containers if missing
+    st.session_state.setdefault("generated_questions", [])
+    st.session_state.setdefault("current_job_code", None)
+
+    # containers for pending operations (will be applied after rendering loop)
+    st.session_state.setdefault("edits_pending", {})        # mapping idx -> {question, answer, keywords}
+    st.session_state.setdefault("to_delete_indices", [])   # list of indices to delete
+
+    # --- Search inputs (not in a form for simplicity) ---
     col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
 
     with col1:
         with contextlib.closing(next(get_db())) as db:
-            unique_candidate_id = get_unique_column_values(
-                db, Candidate, ["candidate_code"]
-            )
+            unique_candidate_id = get_unique_column_values(db, Candidate, ["candidate_code"])
         candidate_id = create_searchbox(
             label="Select Candidate",
             placeholder="Search..",
@@ -358,17 +390,19 @@ def render_generate_questions():
             display_fn=lambda x: x,
             return_fn=lambda x: x,
         )
+
     with col4:
         n_questions = st.number_input(
-            "Number of Questions", min_value=1, max_value=20, value=5, step=1
+            "Number of Questions", min_value=1, max_value=20, value=5, step=1, key="n_questions_input"
         )
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    submitted = st.button("Search")
 
-    # Search button
-    if st.button("Search"):
-        if candidate_id or job_id or name_id:
-            job_description = None
+    # When Search pressed, fetch job_description and generate questions
+    if submitted:
+        job_description = None
+        # open DB context here (important)
+        with contextlib.closing(next(get_db())) as db:
             if candidate_id:
                 job_description = get_column_value_by_condition(
                     db, Candidate, "candidate_code", candidate_id, "job_description"
@@ -382,42 +416,172 @@ def render_generate_questions():
                     db, Candidate, "name", name_id, "job_description"
                 )
 
-            if job_description:
-                questions_data = generate_knowledge_for_tech(
-                    job_description, n_questions=n_questions
-                )
+        if job_description:
+            with st.spinner("Generating questions..."):
+                try:
+                    questions_data = generate_knowledge_for_tech(job_description, n_questions=n_questions)
+                except Exception as exc:
+                    st.error("Generation failed:")
+                    st.exception(exc)
+                    questions_data = []
 
-                st.subheader("Generated Questions")
-                for idx, qa in enumerate(questions_data):
-                    with st.container():
-                        st.markdown(f"**Q{idx+1}: {qa['question']}**")
-                        st.markdown(f"**Answer:** {qa['answer']}")
+            normalized = []
+            for it in (questions_data or []):
+                if not isinstance(it, dict):
+                    continue
+                normalized.append({
+                    "question": it.get("question", "") or "",
+                    "answer": it.get("answer", "") or "",
+                    "keywords": it.get("keywords", []) or [],
+                    "_raw": it,
+                })
 
-                        col1, col2 = st.columns([1, 1])
-                        with col1:
-                            if st.button("✏️ Edit", key=f"edit_{idx}"):
-                                st.session_state[f"edit_{idx}"] = True
-                        with col2:
-                            if st.button("🗑️ Delete", key=f"delete_{idx}"):
-                                st.session_state[f"delete_{idx}"] = True
+            st.session_state["generated_questions"] = normalized
+            st.session_state["current_job_code"] = job_id
 
-                        # If edit mode is active
-                        if st.session_state.get(f"edit_{idx}", False):
-                            new_question = st.text_input(
-                                "Edit Question", value=qa["question"], key=f"q_{idx}"
-                            )
-                            new_answer = st.text_area(
-                                "Edit Answer", value=qa["answer"], key=f"a_{idx}"
-                            )
-                            if st.button("Save", key=f"save_{idx}"):
-                                qa["question"] = new_question
-                                qa["answer"] = new_answer
-                                st.session_state[f"edit_{idx}"] = False
+            # Reset any pending operations after generation
+            st.session_state["edits_pending"] = {}
+            st.session_state["to_delete_indices"] = []
+        else:
+            st.warning("No job description found for the selected item.")
 
-                # Approval button at the bottom
-                st.markdown("---")
-                if st.button("✅ Approve All"):
-                    st.success("Questions approved successfully!")
-                # Add logic to generate questions based on the inputs
+    # ---------------------------
+    # Safe helper callbacks used by buttons (mutate st.session_state only via on_click)
+    # ---------------------------
+    def _mark_delete(idx: int):
+        lst = st.session_state.setdefault("to_delete_indices", [])
+        if idx not in lst:
+            lst.append(idx)
+
+    def _save_edit(idx: int):
+        qk = f"edit_q_input_{idx}"
+        ak = f"edit_a_input_{idx}"
+        kk = f"edit_k_input_{idx}"
+        # read values from session_state (these keys exist if inputs were created)
+        new_q = st.session_state.get(qk, "")
+        new_a = st.session_state.get(ak, "")
+        new_k_raw = st.session_state.get(kk, "")
+        new_k_list = [k.strip() for k in new_k_raw.split(",") if k.strip()]
+        edits = st.session_state.setdefault("edits_pending", {})
+        edits[str(idx)] = {
+            "question": new_q,
+            "answer": new_a,
+            "keywords": new_k_list,
+        }
+        # turn off the edit toggle so UI collapses on next rerun
+        st.session_state[f"edit_toggle_{idx}"] = False
+
+    def _cancel_edit(idx: int):
+        # simply turn off edit mode; inputs remain in session_state but will be ignored
+        st.session_state[f"edit_toggle_{idx}"] = False
+
+    # ---------------------------
+    # Display generated questions (if any)
+    # ---------------------------
+    if st.session_state.get("generated_questions"):
+        st.subheader("Generated Questions")
+
+        # Ensure per-item session keys are initialized BEFORE any widgets are created.
+        # This avoids the StreamlitAPIException about changing session_state after widget instantiation.
+        for idx, qa in enumerate(st.session_state["generated_questions"]):
+            edit_key = f"edit_toggle_{idx}"
+            q_input_key = f"edit_q_input_{idx}"
+            a_input_key = f"edit_a_input_{idx}"
+            k_input_key = f"edit_k_input_{idx}"
+
+            # initialize edit toggle and input values only if they don't exist already
+            st.session_state.setdefault(edit_key, False)
+            # seed the input keys only if they are not already present (so user edits persist)
+            st.session_state.setdefault(q_input_key, qa.get("question", ""))
+            st.session_state.setdefault(a_input_key, qa.get("answer", ""))
+            st.session_state.setdefault(k_input_key, ",".join(qa.get("keywords", []) or []))
+
+        kept = []
+        # Render each item. We DO NOT directly mutate generated_questions in-loop.
+        for idx, qa in enumerate(st.session_state["generated_questions"]):
+            q_text = qa.get("question", "")
+            a_text = qa.get("answer", "")
+            kws = qa.get("keywords", []) or []
+
+            container = st.container()
+            with container:
+                st.markdown(f"**Q{idx+1}: {q_text}**")
+                st.markdown(f"**Answer:** {a_text}")
+                if kws:
+                    st.markdown(f"**Keywords:** {', '.join(kws)}")
+
+                # use a persistent checkbox to toggle edit mode (checkbox key was initialized above)
+                edit_key = f"edit_toggle_{idx}"
+
+                col_left, col_right = st.columns([1, 1])
+                with col_left:
+                    # the checkbox is bound to st.session_state[edit_key]
+                    st.checkbox("Edit", value=st.session_state[edit_key], key=edit_key, help="Toggle to edit this Q/A")
+                with col_right:
+                    # Delete button uses on_click to safely mutate state
+                    if st.button("🗑️ Delete", key=f"delete_btn_{idx}", on_click=_mark_delete, args=(idx,)):
+                        st.warning(f"Marked Q{idx+1} for deletion")
+
+                # If in edit mode, show inputs with stable keys (already seeded above)
+                if st.session_state.get(edit_key, False):
+                    q_input_key = f"edit_q_input_{idx}"
+                    a_input_key = f"edit_a_input_{idx}"
+                    k_input_key = f"edit_k_input_{idx}"
+
+                    # These widgets persist their values in st.session_state so callbacks can read them
+                    st.text_input("Edit Question", value=st.session_state[q_input_key], key=q_input_key)
+                    st.text_area("Edit Answer", value=st.session_state[a_input_key], key=a_input_key, height=120)
+                    st.text_input("Keywords (comma separated)", value=st.session_state[k_input_key], key=k_input_key)
+
+                    col_save, col_cancel = st.columns([1, 1])
+                    with col_save:
+                        st.button("Save", key=f"save_edit_{idx}", on_click=_save_edit, args=(idx,))
+                    with col_cancel:
+                        st.button("Cancel", key=f"cancel_edit_{idx}", on_click=_cancel_edit, args=(idx,))
+
+            # build kept list (we'll apply edits/deletes after the loop)
+            kept.append(qa)
+
+        # ---------------------------
+        # After rendering: apply pending deletes / edits (safe to mutate session state now)
+        # ---------------------------
+        to_delete = sorted(set(st.session_state.get("to_delete_indices", [])), reverse=True)  # reverse so indices remain valid
+        if to_delete:
+            new_kept = [item for i, item in enumerate(kept) if i not in to_delete]
+            st.session_state["generated_questions"] = new_kept
+            # clear pending deletes
+            st.session_state["to_delete_indices"] = []
+            st.success(f"Deleted {len(to_delete)} question(s).")
+        else:
+            # apply edits if any
+            edits_pending = st.session_state.get("edits_pending", {}) or {}
+            if edits_pending:
+                for idx_str, changes in edits_pending.items():
+                    try:
+                        i = int(idx_str)
+                    except ValueError:
+                        continue
+                    if 0 <= i < len(kept):
+                        kept[i].update(changes)
+                st.session_state["generated_questions"] = kept
+                # clear pending edits
+                st.session_state["edits_pending"] = {}
+                st.success(f"Applied {len(edits_pending)} edit(s).")
             else:
-                st.error("Please provide at least one input to search.")
+                # defensive: persist kept as-is
+                st.session_state["generated_questions"] = kept
+
+        st.markdown("---")
+
+        # Approve & Save All
+        if st.button("✅ Approve & Save All"):
+            with contextlib.closing(next(get_db())) as db:
+                try:
+                    inserted = save_questions_to_db(db, st.session_state.get("current_job_code"), st.session_state["generated_questions"])
+                    st.success(f"Saved {inserted} questions to DB.")
+                    st.session_state["generated_questions"] = []
+                    # clear related state
+                    st.session_state["edits_pending"] = {}
+                    st.session_state["to_delete_indices"] = []
+                except Exception as e:
+                    st.exception(e)

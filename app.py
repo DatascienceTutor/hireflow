@@ -45,13 +45,13 @@ def main():
     page = st.session_state.get("page", "login")
 
     # # If user already logged in, redirect to their dashboard
-    # if st.session_state.get("user_email") and st.session_state.get("user_role"):
-    #     role = st.session_state.get("user_role")
-    #     if role == "candidate":
-    #         page = "candidate"
-    #     else:
-    #         page = "manager"
-    #     st.session_state["page"] = page
+    if st.session_state.get("user_email") and st.session_state.get("user_role"):
+        role = st.session_state.get("user_role")
+        if role == "candidate":
+            page = "candidate"
+        else:
+            page = "manager"
+        st.session_state["page"] = page
 
     if page == "login":
         login_page.render_login()
@@ -63,8 +63,8 @@ def main():
         candidate_page.render_candidate()
     elif page == "manager":
         manager_page.render_manager()
-    # else:
-    #     st.write("Page not found.")
+    else:
+        st.write("Page not found.")
 
 
 if __name__ == "__main__":
