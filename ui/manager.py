@@ -24,6 +24,7 @@ from streamlit_searchbox import st_searchbox
 import re
 from services.openai_service import generate_knowledge_for_tech
 from models.knowledge_question import KnowledgeQuestion
+from models.question import Question
 
 def save_questions_to_db(db_session, job_code: str, items: List[Dict[str, Any]]) -> int:
     """
@@ -575,13 +576,48 @@ def render_generate_questions():
 
         # Approve & Save All
         if st.button("✅ Approve & Save All"):
-            with contextlib.closing(next(get_db())) as db:
-                try:
-                    inserted = save_questions_to_db(db, st.session_state.get("current_job_code"), st.session_state["generated_questions"])
-                    st.success(f"Saved {inserted} questions to DB.")
-                    st.session_state["generated_questions"] = []
-                    # clear related state
-                    st.session_state["edits_pending"] = {}
-                    st.session_state["to_delete_indices"] = []
-                except Exception as e:
-                    st.exception(e)
+            # Save generated questions to DB (one Question row per QA)
+            gen_qas = st.session_state.get("generated_questions", [])
+            job_code = st.session_state.get("current_job_code")
+
+            if not gen_qas:
+                st.info("No generated questions to save.")
+            else:
+                with contextlib.closing(next(get_db())) as db:
+                    try:
+                        inserted = 0
+                        for qa in gen_qas:
+                            # defensive defaults
+                            q_text = qa.get("question", "") or ""
+                            a_text = qa.get("answer", "") or ""
+                            kws = qa.get("keywords", []) or []
+
+                            # create model instance (adjust field names if your model differs)
+                            q_row = Question(
+                                job_code=job_code,
+                                question_text=q_text,
+                                model_answer=a_text,
+                                keywords=kws,
+                            )
+
+                            db.add(q_row)
+                            inserted += 1
+
+                        # commit once for all inserts
+                        db.commit()
+
+                        # clear session state and related pending operations
+                        st.session_state["generated_questions"] = []
+                        st.session_state["edits_pending"] = {}
+                        st.session_state["to_delete_indices"] = []
+                        st.session_state["current_job_code"] = None
+
+                        st.success(f"Saved {inserted} question(s) to DB.")
+                    except Exception as e:
+                        # rollback on error and show exception
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        st.exception(e)
+
