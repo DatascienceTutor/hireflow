@@ -34,6 +34,56 @@ else:
         "OPENAI_API_KEY is not set. OpenAI calls will fail until you provide an API key."
     )
 
+try:
+    # newer OpenAI python client (supports OpenAI().embeddings.create)
+    from openai import OpenAI as _OpenAIClientClass  # type: ignore
+    _client = _OpenAIClientClass()
+    _client_create_fn = getattr(_client.embeddings, "create", None)
+    CLIENT_STYLE = "OpenAI()"
+except Exception:
+    try:
+        import openai as _openai  # type: ignore
+        _openai_api_key = os.getenv("OPENAI_API_KEY")
+        if _openai_api_key:
+            _openai.api_key = _openai_api_key
+        _client = _openai
+        _client_create_fn = getattr(_client.Embedding, "create", None) or getattr(_client, "Embedding", None) or getattr(_client, "embeddings", None) or getattr(_client, "Embedding")  # best effort
+        CLIENT_STYLE = "openai"
+    except Exception:
+        _client = None
+        _client_create_fn = None
+        CLIENT_STYLE = None
+
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
+
+
+def get_embedding(text: str):
+    """
+    Return list[float] embedding for `text` or raise an exception.
+    Supports both `OpenAI().embeddings.create` and `openai.Embedding.create`.
+    """
+    if not _client or not _client_create_fn:
+        raise RuntimeError("No OpenAI client available; set OPENAI_API_KEY and install openai package.")
+    # Use the two common call shapes
+    try:
+        # New client style: OpenAI().embeddings.create(input=..., model=...)
+        if CLIENT_STYLE == "OpenAI()":
+            resp = _client.embeddings.create(input=text, model=EMBEDDING_MODEL)
+            # response shape: resp.data[0].embedding
+            return resp.data[0].embedding
+        else:
+            # Classic openai style
+            # Some versions: openai.Embedding.create(input=..., model=...)
+            create_fn = getattr(_client, "Embedding", None) or getattr(_client, "embeddings", None) or getattr(_client, "Embedding", None)
+            if create_fn and hasattr(create_fn, "create"):
+                resp = create_fn.create(input=text, model=EMBEDDING_MODEL)
+            else:
+                # fallback to openai.embeddings.create if present
+                resp = _client.embeddings.create(input=text, model=EMBEDDING_MODEL)
+            return resp["data"][0]["embedding"]
+    except Exception:
+        # Re-raise with stack for calling code to handle/log
+        raise
 
 def _safe_parse_json(text: str) -> Optional[Any]:
     """
@@ -87,11 +137,27 @@ def _build_generation_prompt(job_description: str, n_questions: int = 5) -> str:
         "Do NOT include any other keys or explanatory text outside the JSON array."
     )
     user = (
-        f"Generate {n_questions} interview question items for the technology '{job_description}'. "
-        "Make questions varied (theory, practical, debugging, short coding concept). "
-        "Reference answers should be concise (1-4 short paragraphs). "
-        "Keywords should be 2-6 important keywords for automatic matching. "
-        "Return only the JSON array."
+        f"""
+            Generate {n_questions} interview question items for the technology '{job_description}'.
+
+            Ensure that approximately 40% of the total questions are coding-related.
+            For example:
+            - If 5 questions are generated, at least 2 must be coding questions.
+            - If 10 questions are generated, at least 4 must be coding questions.
+
+            The questions should cover different types:
+            - Theory / Conceptual
+            - Practical / Scenario-based
+            - Debugging / Error identification
+            - Short coding tasks (for the coding-type questions)
+
+            Each question item must include:
+            - "question": the question text
+            - "answer": a concise explanation (1–4 short paragraphs)
+            - "keywords": 2–6 relevant keywords for automatic matching
+
+            Return only a valid JSON array of question items.
+            """
     )
     # We'll combine system+user into messages for chat completion
     return sys, user

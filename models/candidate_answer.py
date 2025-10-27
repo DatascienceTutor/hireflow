@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey
 from sqlalchemy.dialects.sqlite import JSON
 from datetime import datetime
-from .base import Base
+from db.session import Base
 
 class CandidateAnswer(Base):
     __tablename__ = "candidate_answers"

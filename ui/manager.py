@@ -2,12 +2,12 @@
 Hiring manager dashboard (post-login).
 """
 
+import traceback
 import streamlit as st
 from typing import List, Dict, Any
 import contextlib
 import json
 import logging
-import contextlib
 import pandas as pd
 import numpy as np
 from db.session import get_db
@@ -22,149 +22,9 @@ from models.job import Job
 from models.candidate import Candidate
 from streamlit_searchbox import st_searchbox
 import re
-from services.openai_service import generate_knowledge_for_tech
-from models.knowledge_question import KnowledgeQuestion
+from services.openai_service import generate_knowledge_for_tech,get_embedding
+from services.common import get_unique_column_values, get_column_value_by_condition,create_searchbox
 from models.question import Question
-
-def save_questions_to_db(db_session, job_code: str, items: List[Dict[str, Any]]) -> int:
-    """
-    Persist the generated Q&A items to the KnowledgeQuestion table.
-    Returns number of inserted rows.
-    """
-    inserted = 0
-    for it in items:
-        try:
-            kk = KnowledgeQuestion(
-                job_code=job_code,
-                prompt=it.get("prompt") or "",
-                reference_answer=it.get("reference_answer") or "",
-                # store keywords as JSON text (adjust if your model uses JSON column)
-                keywords=json.dumps(it.get("keywords") or []),
-            )
-            db_session.add(kk)
-            inserted += 1
-        except Exception as e:
-            logging.exception("Failed to create KnowledgeQuestion: %s", e)
-    try:
-        db_session.commit()
-    except Exception:
-        db_session.rollback()
-        raise
-    return inserted
-
-
-def get_unique_column_values(db: Session, table_class, column_names: list[str]) -> list:
-    """
-    Fetches unique values of one or more columns from the specified table.
-
-    :param db: SQLAlchemy Session
-    :param table_class: SQLAlchemy model class (e.g., Job)
-    :param column_names: List of column names as strings
-    :return: List of unique values (list of strings if one column, list of tuples if multiple)
-    """
-    # Validate columns
-    columns = []
-    for col_name in column_names:
-        col = getattr(table_class, col_name, None)
-        if col is None:
-            raise ValueError(
-                f"Column '{col_name}' does not exist in {table_class.__name__} table."
-            )
-        columns.append(col)
-
-    # Query distinct values
-    unique_values = db.query(*columns).distinct().all()
-
-    # Return based on number of columns
-    if len(columns) == 1:
-        return [value[0] for value in unique_values]  # Flatten for single column
-    else:
-        return unique_values  # List of tuples for multiple columns
-
-
-
-def get_column_value_by_condition(
-    db: Session, table_class, filter_column: str, filter_value: str, target_column: str
-) -> str:
-    """
-    Fetches the value of target_column from table_class where filter_column matches filter_value.
-
-    :param db: SQLAlchemy Session
-    :param table_class: SQLAlchemy model class (e.g., Job)
-    :param filter_column: Column name to filter by (e.g., 'job_code')
-    :param filter_value: Value to match in filter_column
-    :param target_column: Column name whose value you want to retrieve (e.g., 'description')
-    :return: Value of target_column or None if not found
-    """
-    # Get columns dynamically
-    filter_col = getattr(table_class, filter_column, None)
-    target_col = getattr(table_class, target_column, None)
-
-    if filter_col is None or target_col is None:
-        raise ValueError(f"Invalid column name(s): {filter_column}, {target_column}")
-
-    # Query the table
-    record = db.query(table_class).filter(filter_col == filter_value).first()
-
-    return getattr(record, target_column) if record else None
-
-
-def create_searchbox(
-    label: str,
-    placeholder: str,
-    key: str,
-    data: list,
-    display_fn=lambda x: str(x),
-    return_fn=lambda x: x,
-) -> str:
-    """
-    Creates a Streamlit searchbox for selecting an item from data.
-
-    :param label: Label for the searchbox
-    :param placeholder: Placeholder text
-    :param key: Unique key for Streamlit widget
-    :param data: List of items (tuples or single values)
-    :param display_fn: Function to format display text (default: str)
-    :param return_fn: Function to extract return value (default: identity)
-    :return: Selected value based on return_fn
-    """
-    # Build options dictionary dynamically
-    options = {display_fn(item): return_fn(item) for item in data}
-
-    # Search function
-    def search_items(search_term: str):
-        if not search_term:
-            return options
-        return [item for item in options if search_term.lower() in item.lower()]
-
-    # Render searchbox
-    selected = st_searchbox(
-        search_items,
-        placeholder=placeholder,
-        label=label,
-        key=key,
-    )
-    return options.get(selected)
-
-
-# job_code = create_searchbox(
-#     label="Select Job Code",
-#     placeholder="Search for a Job Code...",
-#     key="job_code_searchbox",
-#     data=unique_job_codes,  # [(code, title), ...]
-#     display_fn=lambda x: f"{x[0]} - {x[1]}",
-#     return_fn=lambda x: x[0]  # Return only code
-# )
-
-# tech = create_searchbox(
-#     label="Select Technology",
-#     placeholder="Search for a Technology...",
-#     key="tech_searchbox",
-#     data=["Python", "Java", "C++"],  # Single values
-#     display_fn=lambda x: x,
-#     return_fn=lambda x: x
-# )
-
 
 def render_manager():
     # Get the user name from session state
@@ -598,7 +458,24 @@ def render_generate_questions():
                                 question_text=q_text,
                                 model_answer=a_text,
                                 keywords=kws,
+                                model_answer_embedding=None
                             )
+                            if a_text:
+                                try:
+                                    # generate embedding (may raise)
+                                    embedding = get_embedding(a_text)
+                                    # Ensure embedding is JSON-serializable (list of floats)
+                                    q_row.model_answer_embedding = embedding
+                                    # Optional: small sleep to avoid hitting strict rate limits if many items
+                                    # time.sleep(0.1)
+                                except Exception as emb_exc:
+                                    # Log the error but continue saving the question without embedding
+                                    st.warning(
+                                        f"Embedding generation failed for question {idx+1}: {str(emb_exc)}"
+                                    )
+                                    # For debugging (developer mode) include traceback
+                                    st.write(traceback.format_exc())
+                                    q_row.model_answer_embedding = None
 
                             db.add(q_row)
                             inserted += 1

@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime
 from sqlalchemy.dialects.sqlite import JSON
 from datetime import datetime
-from .base import Base
+from db.session import Base
 
 class Question(Base):
     __tablename__ = "questions"
