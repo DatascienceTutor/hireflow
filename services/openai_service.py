@@ -16,6 +16,7 @@ import json
 import time
 import logging
 from typing import List, Dict, Any, Optional
+import requests
 
 import openai
 from dotenv import load_dotenv
@@ -293,4 +294,79 @@ def generate_knowledge_for_tech(
             time.sleep(1 + attempt * 1.5)
 
     raise RuntimeError("OpenAI generation failed unexpectedly.")
+
+def evaluate_answer_with_llm(question_text: str, model_answer: str, candidate_answer: str) -> Optional[Dict[str, Any]]:
+    """
+    Calls the OpenAI API to evaluate a candidate's answer against a model answer.
+
+    Returns:
+        A dictionary like {"score": 85, "feedback": "Good answer..."} or None on failure.
+    """
+    
+    # 1. Get API Key from environment variables
+    API_KEY = os.environ.get("OPENAI_API_KEY")
+    if not API_KEY:
+        logging.error("OPENAI_API_KEY environment variable not set.")
+        return None
+        
+    API_URL = "https://api.openai.com/v1/chat/completions"
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+
+    # 2. Define the prompts
+    system_prompt = (
+        "You are an expert technical interviewer. "
+        "Your task is to evaluate a candidate's answer to a technical question. "
+        "You will be given the question, an ideal 'model answer', and the candidate's answer. "
+        "Compare the candidate's answer to the model answer and provide a score from 0 to 100 "
+        "and concise, constructive feedback. "
+        "You MUST respond in JSON format." #<-- JSON hint is important for OpenAI
+    )
+    
+    user_prompt = f"""
+    **Question:**
+    {question_text}
+
+    **Ideal Model Answer (for your reference):**
+    {model_answer}
+
+    **Candidate's Answer (to evaluate):**
+    {candidate_answer}
+
+    Please provide your evaluation in the specified JSON format.
+    """
+
+    # 3. Construct the payload for OpenAI
+    payload = {
+        "model": OPENAI_MODEL, # Using a modern, fast, and JSON-capable model
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "response_format": { "type": "json_object" }, # Ask for JSON mode
+        "temperature": 0.2
+    }
+
+    # 4. Make the API call using 'requests'
+    try:
+        response = requests.post(API_URL, headers=headers, data=json.dumps(payload), timeout=30)
+
+        if response.status_code != 200:
+            logging.error(f"OpenAI API request failed with status {response.status_code}: {response.text}")
+            return None
+
+        result = response.json()
+        
+        # The response content is a JSON *string*
+        json_text = result['choices'][0]['message']['content']
+        evaluation = json.loads(json_text)
+        
+        return evaluation
+
+    except Exception as e:
+        logging.error(f"Error during OpenAI LLM evaluation: {e}")
+        return None
 

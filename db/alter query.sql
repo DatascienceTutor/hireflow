@@ -2,7 +2,10 @@
 -- UPDATE candidates 
 -- SET email = 'mvsreejith2010@gmail.com' 
 -- WHERE candidate_code = 'CAND-2025-001';
-DELETE FROM questions
+DELETE FROM candidate_answers;
+DELETE FROM sqlite_sequence WHERE name='candidate_answers';
+-- DELETE FROM questions;
+-- DELETE FROM sqlite_sequence WHERE name='questions';
 -- DELETE FROM candidates
 -- ALTER TABLE candidates ADD COLUMN job_description TEXT;
 -- CREATE UNIQUE INDEX idx_resume_hash ON candidates(resume_hash);

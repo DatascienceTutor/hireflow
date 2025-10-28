@@ -1,6 +1,8 @@
 """
-Main Streamlit entry point for Hire Flow MVP with password reset and Mailtrap-ready SMTP.
-Routes between login, signup, forgot_password, and role-based dashboards.
+Main Streamlit entry point for Hire Flow MVP.
+This file handles the main routing logic, distinguishing between
+public-facing pages (login, signup) and authenticated, role-based
+dashboards (candidate, manager).
 """
 
 import streamlit as st
@@ -35,37 +37,92 @@ def init_db():
 
 
 def main():
-    st.set_page_config(page_title="Hire Flow", layout="centered")
+    # Use "wide" layout for better tabbed interface
+    st.set_page_config(page_title="Hire Flow", layout="wide")
     init_db()
 
-    # Simple routing via session_state 'page'
-    if "page" not in st.session_state:
-        st.session_state["page"] = "login"
+    # Check for authentication
+    is_authenticated = "user_email" in st.session_state and "user_role" in st.session_state
 
-    page = st.session_state.get("page", "login")
+    if not is_authenticated:
+        # --- Unauthenticated Routes ---
+        if "page" not in st.session_state:
+            st.session_state["page"] = "login"
 
-    # # If user already logged in, redirect to their dashboard
-    if st.session_state.get("user_email") and st.session_state.get("user_role"):
-        role = st.session_state.get("user_role")
-        if role == "candidate":
-            page = "candidate"
-        else:
-            page = "manager"
-        st.session_state["page"] = page
+        # Use a centered column for auth pages
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            page = st.session_state.get("page", "login")
+            
+            if page == "login":
+                login_page.render_login()
+            elif page == "signup":
+                signup_page.render_signup()
+            elif page == "forgot_password":
+                forgot_page.render_forgot_password()
+            else:
+                # If unauthenticated user tries to access a protected page, force login
+                st.session_state["page"] = "login"
+                st.rerun()
 
-    if page == "login":
-        login_page.render_login()
-    elif page == "signup":
-        signup_page.render_signup()
-    elif page == "forgot_password":
-        forgot_page.render_forgot_password()
-    elif page == "candidate":
-        candidate_page.render_candidate()
-    elif page == "manager":
-        manager_page.render_manager()
     else:
-        st.write("Page not found.")
+        # --- Authenticated Routes ---
+        user_name = st.session_state.get("user_name", "User")
+        role = st.session_state["user_role"]
 
+        st.sidebar.title(f"Welcome, {user_name}!")
+        st.sidebar.caption(f"Role: {role.title()}")
+        st.sidebar.markdown("---")
+
+        if st.sidebar.button("Log Out"):
+            # Clear all session state keys on logout
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.session_state["page"] = "login" # Set page to login
+            st.rerun()
+        
+        # --- Role-Based Page Routing ---
+        if role == "candidate":
+            # Sidebar navigation for Candidate
+            st.sidebar.markdown("### Menu")
+            nav_selection = st.sidebar.radio(
+                "Navigation", 
+                ["Dashboard", "My Profile"], 
+                key="candidate_nav",
+                label_visibility="collapsed"
+            )
+
+            if nav_selection == "Dashboard":
+                candidate_page.render_candidate_dashboard() 
+            elif nav_selection == "My Profile":
+                candidate_page.render_candidate_profile()
+
+        elif role == "manager":
+            # --- Manager Navigation using TABS ---
+            st.title("Manager Portal")
+            
+            tab_list = ["Dashboard", "JD Upload", "Resume Upload", "Generate Questions"]
+            tab1, tab2, tab3, tab4 = st.tabs(tab_list)
+    
+            with tab1:
+                # This function comes from your ui/manager.py
+                manager_page.render_manager() 
+            with tab2:
+                # This function comes from your ui/manager.py
+                manager_page.render_jd_upload_page()
+            with tab3:
+                # This function comes from your ui/manager.py
+                manager_page.render_resume_upload_page()
+            with tab4:
+                # This function comes from your ui/manager.py
+                manager_page.render_generate_questions_page()
+        
+        # Handle case where user is authenticated but somehow on a public page state
+        current_page = st.session_state.get("page", "")
+        if current_page in ["login", "signup", "forgot_password"]:
+            st.session_state["page"] = role # redirect to their dashboard
+            st.rerun()
 
 if __name__ == "__main__":
     main()
+

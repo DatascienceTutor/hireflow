@@ -15,6 +15,7 @@ build/
 .streamlit/
 JD/
 resumes/
+ss/
 
 # Database files
 db/*.db

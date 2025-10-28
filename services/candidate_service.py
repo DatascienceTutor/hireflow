@@ -9,6 +9,7 @@ from models.candidate import Candidate
 from models.question import Question
 from models.candidate_answer import CandidateAnswer
 from models.interview import Interview
+from services.openai_service import evaluate_answer_with_llm 
 
 logger = logging.getLogger(__name__)
 
@@ -69,45 +70,78 @@ def save_candidate_answers(
     answer_embeddings: Optional[Dict[int, List[float]]] = None,
 ) -> Dict[str, Any]:
     """
-    Persist CandidateAnswer rows for given candidate. `answers` is mapping question_id -> answer_text.
-    `answer_embeddings` optional mapping question_id -> embedding list (floats).
-
-    Compute semantic similarity if model_answer_embedding exists for that question and answer embedding provided.
-    Finally, update Interview entry for this candidate (if exists) to mark completed and store final_score (average similarity).
+    Persist CandidateAnswer rows.
+    Calls the OpenAI LLM evaluator sequentially inside the loop.
     """
     saved = []
     similarities = []
+    
+    try:
+        # --- We now use a single loop, as the async logic is removed ---
+        
+        for qid, answer_text in answers.items():
+            question: Question = db.query(Question).filter(Question.id == qid).first()
+            if not question:
+                logger.warning("Question id %s not found, skipping", qid)
+                continue
 
-    for qid, answer_text in answers.items():
-        question: Question = db.query(Question).filter(Question.id == qid).first()
-        if not question:
-            logger.warning("Question id %s not found, skipping", qid)
-            continue
+            # 1. Get Answer Embedding
+            emb = None
+            if answer_embeddings and qid in answer_embeddings:
+                emb = answer_embeddings[qid]
 
-        emb = None
-        if answer_embeddings and qid in answer_embeddings:
-            emb = answer_embeddings[qid]
+            # 2. Calculate Semantic Similarity
+            semantic_similarity = None
+            if question.model_answer_embedding and emb:
+                try:
+                    semantic_similarity = cosine_similarity(question.model_answer_embedding, emb)
+                    similarities.append(semantic_similarity)
+                except Exception as exc:
+                    logger.exception("Failed to compute similarity for q=%s: %s", qid, exc)
+            
+            # 3. Get LLM Score (Synchronous Call)
+            llm_score = None
+            llm_feedback = None
+            
+            # Check if we have enough info to call the LLM
+            if question.model_answer and answer_text:
+                try:
+                    # This is the synchronous call to the function in your openai_service.py
+                    evaluation = evaluate_answer_with_llm(
+                        question_text=question.question_text,
+                        model_answer=question.model_answer,
+                        candidate_answer=answer_text
+                    )
+                    if evaluation:
+                        llm_score = evaluation.get("score")
+                        llm_feedback = evaluation.get("feedback")
+                        
+                except Exception as e:
+                    logger.error(f"Error calling LLM evaluation for QID {qid}: {e}")
+            
+            # 4. Create the DB Object with all new data
+            candidate_answer = CandidateAnswer(
+                candidate_id=candidate.candidate_code,
+                question_id=question.id,
+                answer_text=answer_text,
+                answer_embedding=emb,
+                semantic_similarity=semantic_similarity,
+                llm_score=llm_score,
+                feedback=llm_feedback,
+                created_at=datetime.utcnow(),
+            )
+            db.add(candidate_answer)
+            saved.append(candidate_answer)
 
-        semantic_similarity = None
-        if question.model_answer_embedding and emb:
-            try:
-                semantic_similarity = cosine_similarity(question.model_answer_embedding, emb)
-                similarities.append(semantic_similarity)
-            except Exception as exc:
-                logger.exception("Failed to compute similarity for q=%s: %s", qid, exc)
+        # 5. Commit all answers at once
+        db.commit()
+        
+        return {"saved_count": len(saved), "similarities": similarities}
 
-        candidate_answer = CandidateAnswer(
-            candidate_id=candidate.id,
-            question_id=question.id,
-            answer_text=answer_text,
-            answer_embedding=emb,
-            semantic_similarity=semantic_similarity,
-            created_at=datetime.utcnow(),
-        )
-        db.add(candidate_answer)
-        saved.append(candidate_answer)
-
-    db.commit()
+    except Exception as e:
+        db.rollback() 
+        logger.exception("Error saving candidate answers: %s", e)
+        return {"saved_count": 0, "error": str(e)}
 
 def cosine_similarity(a: List[float], b: List[float]) -> float:
     """
