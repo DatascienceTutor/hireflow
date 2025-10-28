@@ -13,6 +13,7 @@ class Candidate(Base):
     job_description = Column(Text, nullable=True)
     tech = Column(String(64), nullable=False)
     resume_hash = Column(String(64), nullable=True, unique=True, index=True)
+    interview_completed = Column(Boolean, default=False, nullable=False)
     created_at = Column(String(50), nullable=True)
 
     def __repr__(self) -> str:

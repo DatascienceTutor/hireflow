@@ -74,6 +74,18 @@ def render_candidate_dashboard():
         return
 
     st.subheader(f"My Interview")
+
+    if candidate.interview_completed:
+        st.success(
+            "You have already completed your interview. Thank you!"
+        )
+        st.info("The hiring team will get back to you soon.")
+        # Clear any session state just in case
+        st.session_state["interview_started"] = False
+        st.session_state.pop("interview_questions", None)
+        st.session_state.pop("interview_answers", None)
+        st.session_state.pop("interview_index", None)
+        return
     
     # --- State 1: Interview Not Started ---
     if not st.session_state.get("interview_started"):

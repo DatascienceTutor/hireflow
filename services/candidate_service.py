@@ -132,7 +132,8 @@ def save_candidate_answers(
             )
             db.add(candidate_answer)
             saved.append(candidate_answer)
-
+        candidate.interview_completed = True
+        db.add(candidate)
         # 5. Commit all answers at once
         db.commit()
         
