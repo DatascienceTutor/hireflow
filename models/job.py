@@ -8,6 +8,7 @@ class Job(Base):
     job_code = Column(String(100), nullable=False, unique=True, index=True)
     tech = Column(String(50), nullable=False)  # technology tag
     title = Column(String(255), nullable=True)
+    manager_email = Column(String, index=True, nullable=False)
     description = Column(Text, nullable=True)
     description_hash = Column(String, unique=True, index=True)
     created_at = Column(String(50), nullable=True)

@@ -22,9 +22,11 @@ def _next_job_code(db: Session) -> str:
     return f"JD-{year}-{str(idx).zfill(3)}"
 
 
-def create_job(db: Session, tech: str, title: str, description: str) -> Job:
+def create_job(db: Session, tech: str, title: str, description: str,manager_email: str) -> Job:
     # Generate a hash of the description content
     description_hash = hashlib.sha256(description.encode()).hexdigest()
+    if not manager_email:
+        raise ValueError("Manager email is required to create a job.")
 
     # Check for duplicate job title
     existing_job_title = db.query(Job).filter(Job.title == title).first()
@@ -47,6 +49,7 @@ def create_job(db: Session, tech: str, title: str, description: str) -> Job:
         title=title,
         description=description,
         description_hash=description_hash,
+        manager_email=manager_email,
         created_at=_now_iso(),
     )
     db.add(j)

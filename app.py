@@ -101,8 +101,8 @@ def main():
             # --- Manager Navigation using TABS ---
             st.title("Manager Portal")
             
-            tab_list = ["Dashboard", "JD Upload", "Resume Upload", "Generate Questions"]
-            tab1, tab2, tab3, tab4 = st.tabs(tab_list)
+            tab_list = ["Dashboard", "JD Upload", "Resume Upload","Assign Interview", "Generate Questions"]
+            tab1, tab2, tab3, tab4,tab5 = st.tabs(tab_list)
     
             with tab1:
                 # This function comes from your ui/manager.py
@@ -114,6 +114,9 @@ def main():
                 # This function comes from your ui/manager.py
                 manager_page.render_resume_upload_page()
             with tab4:
+                # This function comes from your ui/manager.py
+                manager_page.render_assign_interview_page()
+            with tab5:
                 # This function comes from your ui/manager.py
                 manager_page.render_generate_questions_page()
         

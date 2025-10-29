@@ -20,15 +20,19 @@
 -- DELETE FROM sqlite_sequence WHERE name='users';
 -- DELETE Records from tables ##END##
 
--- ALTER TABLE candidates ADD COLUMN interview_completed BOOLEAN;
+-- ALTER TABLE jobs ADD COLUMN manager_email TEXT;
+
+UPDATE jobs 
+SET manager_email = 'mvsreejith0@gmail.com'
+WHERE job_code = 'JD-2025-001'; 
 
 -- UPDATE candidates 
 -- SET interview_completed = False 
 -- WHERE candidate_code = 'CAND-2025-001';
 
-UPDATE candidates 
-SET email = 'mvsreejith2010@gmail.com' 
-WHERE candidate_code = 'CAND-2025-001';
+-- UPDATE candidates 
+-- SET email = 'mvsreejith2010@gmail.com' 
+-- WHERE candidate_code = 'CAND-2025-001';
 -- DELETE FROM candidate_answers;
 -- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM questions;

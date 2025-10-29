@@ -27,6 +27,8 @@ from models.candidate import Candidate
 from models.candidate_answer import CandidateAnswer
 from models.question import Question
 from models.interview import Interview  # <-- Import Interview model
+from sqlalchemy.exc import IntegrityError 
+from datetime import datetime
 
 from streamlit_searchbox import st_searchbox
 import re
@@ -44,9 +46,11 @@ def render_manager():
     """
     Renders the main dashboard tab by querying the Interview table.
     """
-    st.subheader("Candidate Interview Reviews")
-    st.write("Review completed interviews and their scores.")
 
+    manager_email = st.session_state.get("user_email")
+    if not manager_email:
+        st.warning("Could not identify your session. Please log in again.")
+        return
     try:
         with contextlib.closing(next(get_db())) as db:
             # --- NEW, SIMPLER QUERY ---
@@ -62,6 +66,7 @@ def render_manager():
                 )
                 .join(Candidate, Candidate.candidate_code == Interview.candidate_id)
                 .join(Job, Job.job_code == Interview.job_id)
+                .filter(Job.manager_email == manager_email)
                 .all()
             )
             # --- END NEW QUERY ---
@@ -85,6 +90,8 @@ def render_manager():
             )
 
             with st.expander(expander_title):
+                st.subheader("Candidate Interview Reviews")
+                st.write("Review completed interviews and their scores.")
                 st.write(f"#### Detailed Review for {review.name}")
                 st.write(f"**Overall Score (0-100):** {score}")
                 st.write(f"**Evaluation Status:** {review.evaluation_status}")
@@ -160,7 +167,7 @@ def render_jd_upload_page():
     title = st.text_input("Job Title",value=job_title_placeholder)
     
     submitted = st.button("Upload and Save JD")
-
+    manager_email=st.session_state.get("user_email")
     if submitted:
         if not all([uploaded_file, tech, title]):
             st.warning("Please fill in all fields and upload a PDF.")
@@ -173,7 +180,7 @@ def render_jd_upload_page():
 
                 with contextlib.closing(next(get_db())) as db:
                     job = create_job(
-                        db, tech=tech, title=title, description=description
+                        db, tech=tech, title=title, description=description,manager_email=manager_email,
                     )
                     st.success(
                         f"✅ Job '{job.title}' saved successfully with code `{job.job_code}`."
@@ -276,6 +283,114 @@ def render_resume_upload_page():
 
 
 # --- Generate Questions Tab ---
+
+def render_assign_interview_page():
+    """Renders the tab for assigning an existing job interview to an existing candidate."""
+    st.subheader("Assign Interview to Candidate")
+    st.caption("Select a candidate and one of your jobs to create an interview assignment.")
+
+    manager_email = st.session_state.get("user_email")
+    if not manager_email:
+        st.warning("Could not identify manager session. Please log in again.")
+        return
+    st.markdown("##### 1. Select Candidate")
+    candidate_code = None
+    selected_candidate = None
+    with contextlib.closing(next(get_db())) as db:
+        # Fetch all candidates (code and name) for the searchbox
+        all_candidates = get_unique_column_values(db, Candidate, ["candidate_code", "name"])
+    
+    candidate_code_display = create_searchbox(
+        label="Search for Candidate by Code or Name",
+        placeholder="Type code or name...",
+        key="assign_candidate_searchbox",
+        data=all_candidates,
+        display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and name
+        return_fn=lambda x: x[0] if x else None, # Return only the code
+    )
+
+    if candidate_code_display:
+        # Fetch the full candidate object once selected
+        with contextlib.closing(next(get_db())) as db:
+            selected_candidate = db.query(Candidate).filter(Candidate.candidate_code == candidate_code_display.split("_")[0]).first()
+        if selected_candidate:
+            st.success(f"Selected Candidate: **{selected_candidate.name}** ({selected_candidate.candidate_code})")
+            candidate_code = selected_candidate.candidate_code # Store the code
+        else:
+            st.error("Selected candidate not found in database.")
+
+    st.markdown("##### 2. Select Job")
+    job_code = None
+    selected_job = None
+
+    if candidate_code: # Only show job selection if a candidate is selected
+        with contextlib.closing(next(get_db())) as db:
+            # Fetch only jobs created by this manager
+            manager_jobs = db.query(Job.job_code, Job.title).all()
+
+        if not manager_jobs:
+            st.warning("You have not created any jobs yet. Please upload a JD first.")
+            return
+
+        # Searchbox to select job
+        job_code_display = create_searchbox(
+            label="Search for one of your Job Codes",
+            placeholder="Type code or title...",
+            key="assign_job_searchbox",
+            data=manager_jobs,
+            display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and title
+            return_fn=lambda x: x[0] if x else None, # Return only the code
+        )
+
+        if job_code_display:
+             # Fetch the full job object
+            with contextlib.closing(next(get_db())) as db:
+                selected_job = db.query(Job).filter(Job.job_code == job_code_display.split("_")[0]).first()
+            if selected_job:
+                st.success(f"Selected Job: **{selected_job.title}** ({selected_job.job_code})")
+                job_code = selected_job.job_code # Store the code
+            else:
+                 st.error("Selected job not found.")
+    st.markdown("---")
+    if selected_candidate and selected_job:
+        st.markdown(f"Assign interview for **{selected_job.title}** to **{selected_candidate.name}**?")
+        if st.button("Assign Interview", type="primary"):
+            try:
+                with contextlib.closing(next(get_db())) as db:
+                    # Check if this assignment already exists
+                    existing_interview = db.query(Interview).filter(
+                        Interview.candidate_id == selected_candidate.candidate_code, # Use candidate's integer ID
+                        Interview.job_id == selected_job.job_code          # Use job's integer ID
+                    ).first()
+
+                    if existing_interview:
+                        st.warning(f"An interview for this job has already been assigned to {selected_candidate.name} (Status: {existing_interview.status}).")
+                    else:
+                        # Create the new Interview record
+                        new_interview = Interview(
+                            job_id=selected_job.job_code,
+                            candidate_id=selected_candidate.candidate_code,
+                            status="Pending", # Or "Assigned"
+                            evaluation_status="Not Evaluated",
+                            created_at=datetime.utcnow()
+                        )
+                        db.add(new_interview)
+                        db.commit()
+                        st.success(f"Interview for '{selected_job.title}' successfully assigned to {selected_candidate.name}!")
+                        st.balloons()
+                        # Optionally clear selections or rerun? Might be better to keep selections
+                        # st.rerun()
+
+            except IntegrityError:
+                 db.rollback()
+                 st.error("Database error: Could not create the interview assignment. It might already exist.")
+            except Exception as e:
+                db.rollback()
+                st.error(f"An unexpected error occurred: {e}")
+                logging.exception("Error assigning interview:")
+
+    else:
+        st.info("Select both a candidate and a job to enable assignment.")
 
 
 def render_generate_questions_page():
