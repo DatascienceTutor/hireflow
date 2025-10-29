@@ -1,9 +1,33 @@
 -- SQLite
+-- DELETE Records from tables ##START##
+-- DELETE FROM answers;
+-- DELETE FROM candidate_answers;
+-- DELETE FROM candidates;
+-- DELETE FROM email_verifications;
+-- DELETE FROM interviews;
+-- DELETE FROM jobs;
+-- DELETE FROM knowledge_questions;
+-- DELETE FROM questions;
+-- DELETE FROM users;
+-- DELETE FROM sqlite_sequence WHERE name='answers';
+-- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
+-- DELETE FROM sqlite_sequence WHERE name='candidates';
+-- DELETE FROM sqlite_sequence WHERE name='email_verifications';
+-- DELETE FROM sqlite_sequence WHERE name='interviews';
+-- DELETE FROM sqlite_sequence WHERE name='jobs';
+-- DELETE FROM sqlite_sequence WHERE name='questions';
+-- DELETE FROM sqlite_sequence WHERE name='knowledge_questions';
+-- DELETE FROM sqlite_sequence WHERE name='users';
+-- DELETE Records from tables ##END##
+
+-- ALTER TABLE candidates ADD COLUMN interview_completed BOOLEAN;
+
+
 -- UPDATE candidates 
 -- SET email = 'mvsreejith2010@gmail.com' 
 -- WHERE candidate_code = 'CAND-2025-001';
-DELETE FROM candidate_answers;
-DELETE FROM sqlite_sequence WHERE name='candidate_answers';
+-- DELETE FROM candidate_answers;
+-- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM questions;
 -- DELETE FROM sqlite_sequence WHERE name='questions';
 -- DELETE FROM candidates
