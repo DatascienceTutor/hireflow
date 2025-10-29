@@ -60,8 +60,8 @@ def render_manager():
                     Interview.evaluation_status,
                     Interview.final_score,
                 )
-                .join(Candidate, Candidate.id == Interview.candidate_id)
-                .join(Job, Job.id == Interview.job_id)
+                .join(Candidate, Candidate.candidate_code == Interview.candidate_id)
+                .join(Job, Job.job_code == Interview.job_id)
                 .all()
             )
             # --- END NEW QUERY ---

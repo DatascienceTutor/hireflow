@@ -8,7 +8,7 @@
 -- DELETE FROM jobs;
 -- DELETE FROM knowledge_questions;
 -- DELETE FROM questions;
--- DELETE FROM users;
+-- -- DELETE FROM users;
 -- DELETE FROM sqlite_sequence WHERE name='answers';
 -- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM sqlite_sequence WHERE name='candidates';
@@ -22,10 +22,13 @@
 
 -- ALTER TABLE candidates ADD COLUMN interview_completed BOOLEAN;
 
-
 -- UPDATE candidates 
--- SET email = 'mvsreejith2010@gmail.com' 
+-- SET interview_completed = False 
 -- WHERE candidate_code = 'CAND-2025-001';
+
+UPDATE candidates 
+SET email = 'mvsreejith2010@gmail.com' 
+WHERE candidate_code = 'CAND-2025-001';
 -- DELETE FROM candidate_answers;
 -- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM questions;

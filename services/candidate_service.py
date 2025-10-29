@@ -74,11 +74,11 @@ def create_candidate(
 
     # --- NEW LOGIC: Create the Interview record ---
     new_interview = Interview(
-        job_id=job.id,  # Use the job's integer PK
-        candidate_id=cand.id,  # Use the new candidate's integer PK
+        job_id=job.job_code,  # Use the job's integer PK
+        candidate_id=cand.candidate_code,  # Use the new candidate's integer PK
         status="Pending",
         evaluation_status="Not Evaluated",
-        created_at=datetime.utcnow().isoformat(), # Use ISO format as per schema
+        created_at=datetime.utcnow()
     )
     db.add(new_interview)
     db.commit()
@@ -169,13 +169,13 @@ def save_candidate_answers(
         # --- NEW LOGIC: Update the Interview record ---
         interview_to_update = (
             db.query(Interview)
-            .filter(Interview.candidate_id == candidate.id)
+            .filter(Interview.candidate_id == candidate.candidate_code)
             .first()
         )
         
         if interview_to_update:
             interview_to_update.status = "Completed"
-            interview_to_update.evaluation_status = "Pending Evaluation"
+            interview_to_update.evaluation_status = "LLM Evaluvation Completed"
             
             # Calculate and store the final average score
             if llm_scores:

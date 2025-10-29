@@ -5,8 +5,8 @@ from db.session import Base
 class Interview(Base):
     __tablename__ = "interviews"
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False)
-    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
+    job_id = Column(String, ForeignKey("jobs.job_code"), nullable=False)
+    candidate_id = Column(String, ForeignKey("candidates.candidate_code"), nullable=False)
     status = Column(String(50), default="Pending")
     evaluation_status = Column(String(50), default="Not evaluated")
     final_score = Column(Float, nullable=True)  # 1.0 - 10.0

@@ -154,7 +154,7 @@ def _build_generation_prompt(job_description: str, n_questions: int = 5) -> str:
 
             Each question item must include:
             - "question": the question text
-            - "answer": a concise explanation (1–4 short paragraphs)
+            - "answer": a concise explanation (4–8 short paragraphs)
             - "keywords": 2–6 relevant keywords for automatic matching
 
             Return only a valid JSON array of question items.
@@ -320,10 +320,14 @@ def evaluate_answer_with_llm(question_text: str, model_answer: str, candidate_an
     system_prompt = (
         "You are an expert technical interviewer. "
         "Your task is to evaluate a candidate's answer to a technical question. "
-        "You will be given the question, an ideal 'model answer', and the candidate's answer. "
-        "Compare the candidate's answer to the model answer and provide a score from 0 to 100 "
-        "and concise, constructive feedback. "
-        "You MUST respond in JSON format." #<-- JSON hint is important for OpenAI
+        "You will be given the question, an ideal 'model answer', and the candidate's answer.\n\n"
+        "Your evaluation MUST follow these steps:\n"
+        "1. First, determine if the candidate's answer is a *relevant attempt* to answer the question.\n"
+        "2. **If the answer is irrelevant, blank, nonsensical, or just metadata (like 'I don't know' or 'Interview Question'), you MUST give a score of 0.**\n"
+        "3. If the answer *is* a relevant attempt, compare it to the model answer and provide a score from 0 to 100 based on its quality, accuracy, and completeness.\n"
+        "4. Provide concise, constructive feedback explaining the score.\n\n"
+        "You MUST respond in this specific JSON format:\n"
+        '{"score": <number>, "feedback": "<string>"}'
     )
     
     user_prompt = f"""
