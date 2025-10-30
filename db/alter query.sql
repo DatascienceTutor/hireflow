@@ -22,9 +22,18 @@
 
 -- ALTER TABLE jobs ADD COLUMN manager_email TEXT;
 
-UPDATE jobs 
-SET manager_email = 'mvsreejith0@gmail.com'
-WHERE job_code = 'JD-2025-001'; 
+UPDATE interviews 
+SET status = 'Completed'
+WHERE job_id = 'JD-2025-002' AND candidate_id = 'CAND-2025-001'; 
+
+
+UPDATE interviews 
+SET evaluation_status = 'LLM Evaluvation Completed'
+WHERE job_id = 'JD-2025-002' AND candidate_id = 'CAND-2025-001'; 
+
+-- UPDATE jobs 
+-- SET manager_email = 'mvsreejith0@gmail.com'
+-- WHERE job_code = 'JD-2025-001'; 
 
 -- UPDATE candidates 
 -- SET interview_completed = False 

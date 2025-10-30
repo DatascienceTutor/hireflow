@@ -394,8 +394,13 @@ def render_assign_interview_page():
 
 
 def render_generate_questions_page():
-    """Renders the tab for generating interview questions."""
+    """
+    Renders the tab for generating interview questions ON DEMAND via API.
+    Workflow: Select Candidate -> Select Pending Interview/Job -> Generate.
+    Uses the description ONLY from the selected JOB.
+    """
     st.subheader("Generate Interview Questions")
+    st.caption("Select a candidate, then select one of their pending interviews to generate questions.")
 
     st.markdown(
         """
@@ -408,180 +413,221 @@ def render_generate_questions_page():
         unsafe_allow_html=True,
     )
 
-    st.session_state.setdefault("generated_questions", [])
-    st.session_state.setdefault("current_job_code", None)
-    st.session_state.setdefault("edits_pending", {})
-    st.session_state.setdefault("to_delete_indices", [])
+    st.session_state.setdefault("genq_selected_candidate_info", None) # Stores (code, name, id)
+    st.session_state.setdefault("genq_selected_job_code", None)
+    # Re-use existing state for generated questions if desired, or use new keys
+    st.session_state.setdefault("generated_questions_api", []) # Use a different key if keeping knowledge bank tab
+    st.session_state.setdefault("current_job_code_api", None)  # Use a different key
+    st.session_state.setdefault("edits_pending_api", {})      # Use a different key
+    st.session_state.setdefault("to_delete_indices_api", [])  # Use a different key
 
-    st.write("First, find a job description to generate questions from.")
-    col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
+    st.markdown("##### 1. Select Candidate")
+    selected_candidate_info = st.session_state.genq_selected_candidate_info # Get current selection
+    candidate_id_for_query = selected_candidate_info[0] if selected_candidate_info else None
 
-    with col1:
-        with contextlib.closing(next(get_db())) as db:
-            unique_candidate_id = get_unique_column_values(
-                db, Candidate, ["candidate_code"]
-            )
-        candidate_id = create_searchbox(
-            label="Select Candidate",
-            placeholder="Search by Candidate...",
-            key="gen_q_candidate_code_searchbox",
-            data=unique_candidate_id,
-            display_fn=lambda x: x,
-            return_fn=lambda x: x,
+    with contextlib.closing(next(get_db())) as db:
+        # Fetch candidate code, name, and ID
+        all_candidates = get_unique_column_values(db, Candidate, ["candidate_code", "name", "id"])
+
+    # Searchbox to select candidate
+    candidate_selection = create_searchbox(
+        label="Search for Candidate by Code or Name",
+        placeholder="Type code or name...",
+        key="genq_candidate_searchbox_v3", # Unique key
+        data=all_candidates,
+        display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and name
+        # Return the whole tuple (code, name, id)
+        return_fn=lambda x: x if x else None
+    )
+
+    if candidate_selection != st.session_state.genq_selected_candidate_info:
+        st.session_state.genq_selected_candidate_info = candidate_selection
+        st.session_state.genq_selected_job_code = None
+        st.rerun()
+    
+    if st.session_state.genq_selected_candidate_info:
+        st.success(f"Selected Candidate: **{st.session_state.genq_selected_candidate_info[1]}** ({st.session_state.genq_selected_candidate_info[0]})")
+    else:
+        st.info("Select a candidate to see their pending interviews.")
+        st.stop()
+    
+    st.markdown("##### 2. Select Pending Interview / Job")
+    pending_jobs_for_candidate = []
+    selected_job_code = st.session_state.genq_selected_job_code # Get current selection
+ 
+    with contextlib.closing(next(get_db())) as db:
+        pending_interviews_query = (
+            db.query(Job.job_code, Job.title) # Select Job details needed for display/return
+            .join(Interview, Job.job_code == Interview.job_id)
+            .filter(Interview.candidate_id == candidate_id_for_query) # Filter by selected candidate ID
+            .filter(Interview.status == "Pending")
+            .order_by(Job.title) # Optional: Order the list
+            .all()
         )
-
-    with col2:
-        with contextlib.closing(next(get_db())) as db:
-            unique_job_id = get_unique_column_values(db, Job, ["job_code"])
-        job_id = create_searchbox(
-            label="Select Job",
-            placeholder="Search by Job...",
-            key="gen_q_job_code_searchbox",
-            data=unique_job_id,
-            display_fn=lambda x: x,
-            return_fn=lambda x: x,
+        pending_jobs_for_candidate = pending_interviews_query
+    if not pending_jobs_for_candidate:
+        st.warning(f"No pending interviews found for {st.session_state.genq_selected_candidate_info[1]}. Assign an interview first.")
+        # Clear job selection state if list becomes empty
+        st.session_state.genq_selected_job_code = None
+        st.stop() # Stop if no jobs to select
+    else:
+        # Use searchbox for the filtered jobs
+        job_selection = create_searchbox(
+            label="Select Pending Job Interview",
+            placeholder="Select from pending interviews...",
+            key="genq_job_searchbox_v3", # Unique key
+            data=pending_jobs_for_candidate,
+            # Display job code and title
+            display_fn=lambda x: f"{x[0]}_{x[1]}",
+            # Return the job_code
+            return_fn=lambda x: x[0] if x else None
         )
+        if job_selection != st.session_state.genq_selected_job_code:
+            st.session_state.genq_selected_job_code = job_selection
+            st.rerun() # Rerun if job selection changes
 
-    with col3:
-        with contextlib.closing(next(get_db())) as db:
-            unique_cand_name = get_unique_column_values(db, Candidate, ["name"])
-        name_id = create_searchbox(
-            label="Select Name",
-            placeholder="Search by Name...",
-            key="gen_q_name_searchbox",
-            data=unique_cand_name,
-            display_fn=lambda x: x,
-            return_fn=lambda x: x,
-        )
+        if st.session_state.genq_selected_job_code:
+             st.success(f"Selected Job: **{st.session_state.genq_selected_job_code}**")
+        else:
+             st.info("Select a pending interview/job for the chosen candidate.")
+    
+    st.markdown("---")
+    n_questions = st.number_input(
+        "Number of Questions to Generate", min_value=1, max_value=20, value=5, step=1,
+        key="n_questions_input_v3" # Unique key
+    )
 
-    with col4:
-        n_questions = st.number_input(
-            "Number of Questions",
-            min_value=1,
-            max_value=20,
-            value=5,
-            step=1,
-            key="n_questions_input",
-        )
+    can_generate = bool(st.session_state.genq_selected_candidate_info and st.session_state.genq_selected_job_code)
 
-    submitted = st.button("Search and Generate Questions")
-
-    if submitted:
+    if st.button("Generate Questions", disabled=not can_generate,type='primary'):
+        job_code_to_use = st.session_state.genq_selected_job_code
         job_description = None
+
+        # Fetch the description ONLY from the selected JOB CODE
         with contextlib.closing(next(get_db())) as db:
-            if candidate_id:
-                job_description = get_column_value_by_condition(
-                    db, Candidate, "candidate_code", candidate_id, "job_description"
-                )
-            elif job_id:
-                job_description = get_column_value_by_condition(
-                    db, Job, "job_code", job_id, "description"
-                )
-            elif name_id:
-                job_description = get_column_value_by_condition(
-                    db, Candidate, "name", name_id, "job_description"
-                )
+            selected_job_obj = db.query(Job.description).filter(Job.job_code == job_code_to_use).first()
+            if selected_job_obj:
+                job_description = selected_job_obj.description
+            else:
+                st.error(f"Critical Error: Could not find details for the selected job code: {job_code_to_use}")
+                st.stop() # Stop if job vanished somehow
 
         if job_description:
+            st.info(f"Using description from selected Job: {job_code_to_use}")
+            st.session_state["current_job_code_api"] = job_code_to_use # Store for saving
+
             with st.spinner("Generating questions..."):
                 try:
+                    # Make sure generate_knowledge_for_tech exists and works
                     questions_data = generate_knowledge_for_tech(
                         job_description, n_questions=n_questions
                     )
+
+                    # --- Clear old edit/display state BEFORE setting new questions ---
+                    keys_to_delete = [k for k in st.session_state if k.startswith(("edit_q_api_", "edit_a_api_", "edit_k_api_", "edit_toggle_api_", "delete_btn_api_"))]
+                    for key in keys_to_delete: del st.session_state[key]
+                    st.session_state["edits_pending_api"] = {}
+                    st.session_state["to_delete_indices_api"] = []
+                    # --- End clearing state ---
+
+                    if questions_data: # Normalize and store
+                         normalized = []
+                         for it in (questions_data or []):
+                             # (Your normalization logic - same as before)
+                             if not isinstance(it, dict): continue
+                             prompt = it.get("question", "") or ""
+                             ref = it.get("answer", "") or ""
+                             kws = it.get("keywords", []) or []
+                             if isinstance(kws, str): kws = [k.strip() for k in kws.split(",") if k.strip()]
+                             if not prompt or not ref: continue
+                             normalized.append({"question": prompt, "answer": ref, "keywords": kws})
+
+                         st.session_state["generated_questions_api"] = normalized
+                         # Don't rerun here, let the display section render immediately
+                    else:
+                         st.warning("API returned no valid questions for this description.")
+                         st.session_state["generated_questions_api"] = [] # Clear
+
                 except Exception as exc:
-                    st.error("Generation failed:")
-                    st.exception(exc)
-                    questions_data = []
-
-            normalized = []
-            for it in questions_data or []:
-                if not isinstance(it, dict):
-                    continue
-                normalized.append(
-                    {
-                        "question": it.get("question", "") or "",
-                        "answer": it.get("answer", "") or "",
-                        "keywords": it.get("keywords", []) or [],
-                        "_raw": it,
-                    }
-                )
-
-            st.session_state["generated_questions"] = normalized
-            st.session_state["current_job_code"] = job_id
-            st.session_state["edits_pending"] = {}
-            st.session_state["to_delete_indices"] = []
+                     st.error("Question generation failed:")
+                     st.exception(exc)
+                     st.session_state["generated_questions_api"] = [] # Clear
         else:
-            st.warning("No job description found for the selected item.")
+             st.warning(f"Job description for '{job_code_to_use}' is empty. Cannot generate questions.")
+             st.session_state["generated_questions_api"] = [] # Clear
 
-    # --- Safe helper callbacks ---
-    def _mark_delete(idx: int):
-        lst = st.session_state.setdefault("to_delete_indices", [])
-        if idx not in lst:
-            lst.append(idx)
+    elif not can_generate:
+         st.info("Select both a candidate and one of their pending interviews to enable question generation.")
 
-    def _save_edit(idx: int):
-        qk = f"edit_q_input_{idx}"
-        ak = f"edit_a_input_{idx}"
-        kk = f"edit_k_input_{idx}"
+
+    # --- Step 4: Display/Edit Generated Questions ---
+    # Using the specific session state keys for this workflow
+
+    # --- Safe helper callbacks (use API-specific keys) ---
+    def _mark_delete_api(idx: int):
+        lst = st.session_state.setdefault("to_delete_indices_api", [])
+        if idx not in lst: lst.append(idx)
+
+    def _save_edit_api(idx: int):
+        # Use keys like 'edit_q_api_{idx}'
+        qk = f"edit_q_api_{idx}"
+        ak = f"edit_a_api_{idx}"
+        kk = f"edit_k_api_{idx}"
         new_q = st.session_state.get(qk, "")
         new_a = st.session_state.get(ak, "")
         new_k_raw = st.session_state.get(kk, "")
         new_k_list = [k.strip() for k in new_k_raw.split(",") if k.strip()]
-        edits = st.session_state.setdefault("edits_pending", {})
-        edits[str(idx)] = {
-            "question": new_q,
-            "answer": new_a,
-            "keywords": new_k_list,
-        }
-        st.session_state[f"edit_toggle_{idx}"] = False
+        edits = st.session_state.setdefault("edits_pending_api", {})
+        edits[str(idx)] = {"question": new_q, "answer": new_a, "keywords": new_k_list}
+        st.session_state[f"edit_toggle_api_{idx}"] = False # Close edit box
 
-    def _cancel_edit(idx: int):
-        st.session_state[f"edit_toggle_{idx}"] = False
+    def _cancel_edit_api(idx: int):
+        st.session_state[f"edit_toggle_api_{idx}"] = False # Close edit box
 
-    # --- Display generated questions ---
-    if st.session_state.get("generated_questions"):
-        st.markdown("---")
-        st.subheader("Review Generated Questions")
 
-        for idx, qa in enumerate(st.session_state["generated_questions"]):
-            st.session_state.setdefault(f"edit_toggle_{idx}", False)
-            st.session_state.setdefault(
-                f"edit_q_input_{idx}", qa.get("question", "")
-            )
-            st.session_state.setdefault(f"edit_a_input_{idx}", qa.get("answer", ""))
-            st.session_state.setdefault(
-                f"edit_k_input_{idx}", ",".join(qa.get("keywords", []) or [])
-            )
+    # --- Process Deletes/Edits Before Rendering List ---
+    to_delete = sorted(set(st.session_state.get("to_delete_indices_api", [])), reverse=True)
+    current_questions = st.session_state.get("generated_questions_api", [])
 
-        to_delete = sorted(
-            set(st.session_state.get("to_delete_indices", [])), reverse=True
-        )
-        current_questions = st.session_state.get("generated_questions", [])
+    if to_delete:
+        new_kept = [item for i, item in enumerate(current_questions) if i not in to_delete]
+        st.session_state["generated_questions_api"] = new_kept
+        st.session_state["to_delete_indices_api"] = []
+        st.success(f"Deleted {len(to_delete)} question(s).")
+        st.rerun()
 
-        if to_delete:
-            new_kept = [
-                item for i, item in enumerate(current_questions) if i not in to_delete
-            ]
-            st.session_state["generated_questions"] = new_kept
-            st.session_state["to_delete_indices"] = []
-            st.success(f"Deleted {len(to_delete)} question(s).")
-            st.rerun()
-
-        edits_pending = st.session_state.get("edits_pending", {})
-        if edits_pending:
-            for idx_str, changes in edits_pending.items():
-                try:
-                    i = int(idx_str)
-                    if 0 <= i < len(current_questions):
-                        current_questions[i].update(changes)
-                except ValueError:
-                    continue
-            st.session_state["generated_questions"] = current_questions
-            st.session_state["edits_pending"] = {}
+    edits_pending = st.session_state.get("edits_pending_api", {})
+    if edits_pending:
+        modified = False
+        for idx_str, changes in edits_pending.items():
+            try:
+                i = int(idx_str)
+                if 0 <= i < len(current_questions):
+                    current_questions[i].update(changes)
+                    modified = True
+            except ValueError: continue
+        if modified:
+            st.session_state["generated_questions_api"] = current_questions
+            st.session_state["edits_pending_api"] = {}
             st.success(f"Applied {len(edits_pending)} edit(s).")
             st.rerun()
 
-        for idx, qa in enumerate(st.session_state.get("generated_questions", [])):
+    # --- Display generated questions ---
+    if st.session_state.get("generated_questions_api"):
+        st.markdown("---")
+        st.subheader("Review Generated Questions")
+
+        # Initialize widget state keys before creating widgets
+        for idx, qa in enumerate(st.session_state["generated_questions_api"]):
+            st.session_state.setdefault(f"edit_toggle_api_{idx}", False)
+            # Set default value for inputs based on current question data,
+            # BUT only if the key doesn't already exist (to preserve user edits between reruns)
+            st.session_state.setdefault(f"edit_q_api_{idx}", qa.get("question", ""))
+            st.session_state.setdefault(f"edit_a_api_{idx}", qa.get("answer", ""))
+            st.session_state.setdefault(f"edit_k_api_{idx}", ",".join(qa.get("keywords", []) or []))
+
+        # Render loop
+        for idx, qa in enumerate(st.session_state["generated_questions_api"]):
             q_text = qa.get("question", "")
             a_text = qa.get("answer", "")
             kws = qa.get("keywords", []) or []
@@ -589,107 +635,88 @@ def render_generate_questions_page():
             with st.container(border=True):
                 st.markdown(f"**Q{idx+1}: {q_text}**")
                 st.markdown(f"**Answer:** {a_text}")
-                if kws:
-                    st.markdown(f"**Keywords:** {', '.join(kws)}")
+                if kws: st.markdown(f"**Keywords:** {', '.join(kws)}")
 
-                edit_key = f"edit_toggle_{idx}"
+                edit_key = f"edit_toggle_api_{idx}"
                 col_left, col_right = st.columns([1, 1])
                 with col_left:
-                    st.checkbox(
-                        "Edit",
-                        value=st.session_state[edit_key],
-                        key=edit_key,
-                        help="Toggle to edit this Q/A",
-                    )
+                    # Checkbox value comes from session state
+                    st.checkbox("Edit", key=edit_key, help="Toggle to edit this Q/A")
                 with col_right:
-                    if st.button(
-                        "🗑️ Delete",
-                        key=f"delete_btn_{idx}",
-                        on_click=_mark_delete,
-                        args=(idx,),
-                    ):
-                        st.warning(f"Marked Q{idx+1} for deletion")
-                        st.rerun()
+                    # Delete uses on_click callback
+                    st.button("🗑️ Delete", key=f"delete_btn_api_{idx}", on_click=_mark_delete_api, args=(idx,))
 
+                # Edit mode display
                 if st.session_state.get(edit_key, False):
-                    q_input_key = f"edit_q_input_{idx}"
-                    a_input_key = f"edit_a_input_{idx}"
-                    k_input_key = f"edit_k_input_{idx}"
+                    q_input_key = f"edit_q_api_{idx}"
+                    a_input_key = f"edit_a_api_{idx}"
+                    k_input_key = f"edit_k_api_{idx}"
 
+                    # Text inputs/area get their value from session state via key
                     st.text_input("Edit Question", key=q_input_key)
                     st.text_area("Edit Answer", key=a_input_key, height=120)
                     st.text_input("Keywords (comma separated)", key=k_input_key)
 
                     col_save, col_cancel = st.columns([1, 1])
                     with col_save:
-                        st.button(
-                            "Save",
-                            key=f"save_edit_{idx}",
-                            on_click=_save_edit,
-                            args=(idx,),
-                        )
+                        st.button("Save", key=f"save_edit_api_{idx}", on_click=_save_edit_api, args=(idx,))
                     with col_cancel:
-                        st.button(
-                            "Cancel",
-                            key=f"cancel_edit_{idx}",
-                            on_click=_cancel_edit,
-                            args=(idx,),
-                        )
-        
+                        st.button("Cancel", key=f"cancel_edit_api_{idx}", on_click=_cancel_edit_api, args=(idx,))
+
+        # --- Save Button ---
         st.markdown("---")
+        if st.button("✅ Approve & Send to Candidate"):
+            gen_qas_to_save = st.session_state.get("generated_questions_api", [])
+            job_code_to_save = st.session_state.get("current_job_code_api") # Use API-specific key
 
-        if st.button("✅ Approve & Save All to Database"):
-            gen_qas = st.session_state.get("generated_questions", [])
-            job_code = st.session_state.get("current_job_code")
-
-            if not gen_qas:
+            if not gen_qas_to_save:
                 st.info("No generated questions to save.")
+            elif not job_code_to_save:
+                 st.error("Cannot save: Job code is missing. Please regenerate questions.")
             else:
-                with st.spinner(f"Saving {len(gen_qas)} questions to database..."):
+                with st.spinner(f"Saving {len(gen_qas_to_save)} questions to database for job {job_code_to_save}..."):
                     with contextlib.closing(next(get_db())) as db:
                         try:
                             inserted = 0
-                            for idx, qa in enumerate(gen_qas):
-                                q_text = qa.get("question", "") or ""
-                                a_text = qa.get("answer", "") or ""
-                                kws = qa.get("keywords", []) or []
-                                
+                            for idx, qa_save in enumerate(gen_qas_to_save):
+                                # (Your existing Question object creation logic...)
                                 q_row = Question(
-                                    job_code=job_code,
-                                    question_text=q_text,
-                                    model_answer=a_text,
-                                    keywords=kws,
-                                    model_answer_embedding=None,
+                                    job_code=job_code_to_save, # Use correct job code
+                                    question_text=qa_save.get("question", ""),
+                                    model_answer=qa_save.get("answer", ""),
+                                    keywords=qa_save.get("keywords", []),
+                                    model_answer_embedding=None, # Embedding logic below
                                 )
-                                if a_text:
+                                # (Your existing embedding generation logic...)
+                                a_text_save = qa_save.get("answer", "")
+                                if a_text_save:
                                     try:
-                                        embedding = get_embedding(a_text)
+                                        embedding = get_embedding(a_text_save)
                                         q_row.model_answer_embedding = embedding
                                     except Exception as emb_exc:
-                                        st.warning(
-                                            f"Embedding generation failed for question {idx+1}: {str(emb_exc)}"
-                                        )
-                                        logging.error(
-                                            f"Embedding Error: {traceback.format_exc()}"
-                                        )
-                                        q_row.model_answer_embedding = None
+                                         st.warning(f"Embedding failed for Q{idx+1}: {emb_exc}")
+                                         logging.error(f"Embedding Error: {traceback.format_exc()}")
+                                         q_row.model_answer_embedding = None
 
                                 db.add(q_row)
                                 inserted += 1
-                            
+
                             db.commit()
-                            st.info("Questions are saved to database")
+                            st.success(f"Saved {inserted} question(s) to DB for job {job_code_to_save}.")
                             st.balloons()
 
-                            st.session_state["generated_questions"] = []
-                            st.session_state["edits_pending"] = {}
-                            st.session_state["to_delete_indices"] = []
-                            st.session_state["current_job_code"] = None
+                            # Clear state after successful save
+                            st.session_state["generated_questions_api"] = []
+                            st.session_state["edits_pending_api"] = {}
+                            st.session_state["to_delete_indices_api"] = []
+                            st.session_state["current_job_code_api"] = None
+                            # Maybe clear selections too?
+                            # st.session_state.genq_selected_candidate_info = None
+                            # st.session_state.genq_selected_job_code = None
+                            st.rerun() # Rerun to clear UI
 
                         except Exception as e:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
+                            try: db.rollback()
+                            except Exception: pass
+                            st.error("Database error occurred while saving.")
                             st.exception(e)
-

@@ -15,6 +15,7 @@ from services.common import header_with_progress
 import contextlib
 from db.session import get_db
 from models.candidate import Candidate
+from models.interview import Interview
 from services.openai_service import get_embedding
 import traceback
 import logging
@@ -68,6 +69,7 @@ def render_candidate_dashboard():
         candidate = get_column_value_by_condition(
             db, Candidate, "email", user_email, target_column=None, multiple=False
         )
+        Interview_pending=db.query(Interview).filter((Interview.status=="Pending")&(Interview.candidate_id==candidate.candidate_code)).first()
 
     if not candidate:
         st.error("Candidate not found for this email. Please contact admin.")
@@ -75,7 +77,7 @@ def render_candidate_dashboard():
 
     st.subheader(f"My Interview")
 
-    if candidate.interview_completed:
+    if not Interview_pending:
         st.success(
             "You have already completed your interview. Thank you!"
         )
@@ -111,7 +113,7 @@ def render_candidate_dashboard():
     if "interview_questions" not in st.session_state:
         with contextlib.closing(next(get_db())) as db:
             questions_obj_list: List[Question] = get_column_value_by_condition(
-                db, Question, "job_code", candidate.job_code, target_column=None, multiple=True
+                db, Question, "job_code", Interview_pending.job_id, target_column=None, multiple=True
             )
 
         if not questions_obj_list:

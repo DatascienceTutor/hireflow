@@ -162,14 +162,10 @@ def save_candidate_answers(
             db.add(candidate_answer)
             saved.append(candidate_answer)
         
-        # 5. Mark candidate's interview as completed
-        candidate.interview_completed = True
-        db.add(candidate)
-        
         # --- NEW LOGIC: Update the Interview record ---
         interview_to_update = (
             db.query(Interview)
-            .filter(Interview.candidate_id == candidate.candidate_code)
+            .filter((Interview.status=="Pending")&(Interview.candidate_id == candidate.candidate_code))
             .first()
         )
         
