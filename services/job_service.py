@@ -49,8 +49,7 @@ def create_job(db: Session, tech: str, title: str, description: str,manager_emai
         title=title,
         description=description,
         description_hash=description_hash,
-        manager_email=manager_email,
-        created_at=_now_iso(),
+        manager_email=manager_email
     )
     db.add(j)
     db.commit()

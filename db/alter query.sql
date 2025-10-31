@@ -4,7 +4,7 @@
 -- DELETE FROM candidate_answers;
 -- DELETE FROM candidates;
 -- DELETE FROM email_verifications;
--- DELETE FROM interviews;
+DELETE FROM interviews;
 -- DELETE FROM jobs;
 -- DELETE FROM knowledge_questions;
 -- DELETE FROM questions;
@@ -13,7 +13,7 @@
 -- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM sqlite_sequence WHERE name='candidates';
 -- DELETE FROM sqlite_sequence WHERE name='email_verifications';
--- DELETE FROM sqlite_sequence WHERE name='interviews';
+DELETE FROM sqlite_sequence WHERE name='interviews';
 -- DELETE FROM sqlite_sequence WHERE name='jobs';
 -- DELETE FROM sqlite_sequence WHERE name='questions';
 -- DELETE FROM sqlite_sequence WHERE name='knowledge_questions';
@@ -39,9 +39,9 @@ WHERE job_id = 'JD-2025-002' AND candidate_id = 'CAND-2025-001';
 -- SET interview_completed = False 
 -- WHERE candidate_code = 'CAND-2025-001';
 
--- UPDATE candidates 
--- SET email = 'mvsreejith2010@gmail.com' 
--- WHERE candidate_code = 'CAND-2025-001';
+UPDATE candidates 
+SET email = 'mvsreejith2010@gmail.com' 
+WHERE candidate_code = 'CAND-2025-001';
 -- DELETE FROM candidate_answers;
 -- DELETE FROM sqlite_sequence WHERE name='candidate_answers';
 -- DELETE FROM questions;

@@ -1,17 +1,43 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey
+"""
+Interview model: The central "junction" table.
+Links a Candidate to a Job.
+"""
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from db.session import Base
-
 
 class Interview(Base):
     __tablename__ = "interviews"
+
     id = Column(Integer, primary_key=True, index=True)
-    job_id = Column(String, ForeignKey("jobs.job_code"), nullable=False)
-    candidate_id = Column(String, ForeignKey("candidates.candidate_code"), nullable=False)
-    status = Column(String(50), default="Pending")
-    evaluation_status = Column(String(50), default="Not evaluated")
-    final_score = Column(Float, nullable=True)  # 1.0 - 10.0
-    scheduled_at = Column(String(50), nullable=True)
-    created_at = Column(String(50), nullable=True)
+    status = Column(String(50), default="Pending", index=True)
+    evaluation_status = Column(String(50), default="Not Evaluated")
+    final_score = Column(Float, nullable=True)
+    scheduled_at = Column(String(50), nullable=True) # Kept as string per original
+    created_at = Column(DateTime, server_default=func.now())
+
+    # Database-level Links
+    
+    # Link to the Job. If the Job is deleted, this Interview is deleted.
+    job_id = Column(
+        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    
+    # Link to the Candidate. If the Candidate is deleted, this Interview is deleted.
+    candidate_id = Column(
+        Integer, ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    # ORM Relationships
+    job = relationship("Job", back_populates="interviews")
+    candidate = relationship("Candidate", back_populates="interviews")
+    
+    # If this Interview is deleted, all Answers associated with it are also deleted.
+    answers = relationship(
+        "CandidateAnswer", back_populates="interview", cascade="all, delete-orphan"
+    )
+
 
     def __repr__(self) -> str:
-        return f"<Interview job={self.job_id} cand={self.candidate_id} status={self.status}>"
+        return f"<Interview {self.id} - JobID {self.job_id} CandID {self.candidate_id}>"

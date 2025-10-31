@@ -34,9 +34,8 @@ def create_candidate(
     name: str,
     tech: str,
     email: str,
-    resume: str = "",
-    job_code: str = "",
-    job_description: str = "",
+    job_id: int,
+    resume: str = ""
 ) -> Candidate:
     """
     Creates a new candidate and also creates their initial Interview record
@@ -44,9 +43,9 @@ def create_candidate(
     """
     
     # --- Find the Job's integer ID ---
-    job = db.query(Job).filter(Job.job_code == job_code).first()
+    job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
-        raise ValueError(f"No job found with code {job_code}")
+        raise ValueError(f"No job found with id={job_id}")
 
     code = _next_candidate_code(db)
     resume_hash = hashlib.sha256(resume.encode()).hexdigest()
@@ -58,38 +57,22 @@ def create_candidate(
 
     cand = Candidate(
         candidate_code=code,
-        job_code=job_code,
         email=email,
         name=name,
         resume=resume,
         resume_hash=resume_hash,
-        tech=tech,
-        job_description=job_description,
-        created_at=datetime.utcnow(),  # Use datetime object
-        interview_completed=False,
+        tech=tech
     )
     db.add(cand)
     db.commit()
     db.refresh(cand)  # Refresh to get the new cand.id
-
-    # --- NEW LOGIC: Create the Interview record ---
-    new_interview = Interview(
-        job_id=job.job_code,  # Use the job's integer PK
-        candidate_id=cand.candidate_code,  # Use the new candidate's integer PK
-        status="Pending",
-        evaluation_status="Not Evaluated",
-        created_at=datetime.utcnow()
-    )
-    db.add(new_interview)
-    db.commit()
-    # --- END NEW LOGIC ---
-    
     return cand
 
 
 def save_candidate_answers(
     db: Session,
     candidate: Candidate,
+    interview_id: int,
     answers: Dict[int, str],
     answer_embeddings: Optional[Dict[int, List[float]]] = None,
 ) -> Dict[str, Any]:
@@ -104,6 +87,20 @@ def save_candidate_answers(
     llm_scores = []  # <-- Create a list to hold scores
     
     try:
+        interview_to_update = (
+            db.query(Interview)
+            .filter(Interview.id == interview_id)             # <-- 3. Filter by interview.id
+            .filter(Interview.candidate_id == candidate.id)   # <-- 3. Filter by candidate.id
+            .first()
+        )
+        if not interview_to_update:
+            logger.error(f"Could not find Interview {interview_id} for candidate {candidate.id}")
+            raise ValueError(f"Interview ID {interview_id} not found for this candidate.")
+        
+        if interview_to_update.status == "Completed":
+            logger.warning(f"Interview {interview_id} has already been submitted.")
+            return {"saved_count": 0, "error": "This interview has already been completed."}
+
         for qid, answer_text in answers.items():
             question: Question = db.query(Question).filter(Question.id == qid).first()
             if not question:
@@ -150,8 +147,9 @@ def save_candidate_answers(
             
             # 4. Create the DB Object with all new data
             candidate_answer = CandidateAnswer(
-                candidate_id=candidate.candidate_code,
+                candidate_id=candidate.id,
                 question_id=question.id,
+                interview_id=interview_id,
                 answer_text=answer_text,
                 answer_embedding=emb,
                 semantic_similarity=semantic_similarity,
@@ -165,7 +163,7 @@ def save_candidate_answers(
         # --- NEW LOGIC: Update the Interview record ---
         interview_to_update = (
             db.query(Interview)
-            .filter((Interview.status=="Pending")&(Interview.candidate_id == candidate.candidate_code))
+            .filter((Interview.status=="Pending")&(Interview.candidate_id == candidate.id))
             .first()
         )
         

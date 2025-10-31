@@ -7,7 +7,7 @@ Authentication and user services:
 """
 
 from sqlalchemy.orm import Session
-from models.user import User
+from models.user import User,EmailVerification
 import bcrypt
 import random
 import string
@@ -16,8 +16,12 @@ from typing import Tuple, Optional
 from dotenv import load_dotenv
 import smtplib
 from email.message import EmailMessage
+from datetime import datetime, timedelta
+import logging
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 SMTP_HOST = os.getenv("SMTP_HOST", "")
 SMTP_PORT = int(os.getenv("SMTP_PORT") or 0)
@@ -91,20 +95,43 @@ def signup_user(db: Session, email: str, role: str, password: str) -> Tuple[bool
 
     existing = db.query(User).filter(User.email == email).first()
     if existing:
-        return False, "Email already registered."
-
-    hashed = _hash_password(password)
+        if existing.is_confirmed:
+            return False, "A user with this email already exists."
+        else:
+            # Allow resending confirmation if user exists but isn't confirmed
+            # (Note: This is a simplified "resend" logic)
+            logger.info(f"User {email} exists but is not confirmed. Re-creating code.")
+            # Delete old codes
+            db.query(EmailVerification).filter(EmailVerification.user_id == existing.id).delete()
+            user = existing # Use the existing user
+    else:
+        hashed = _hash_password(password)
+        user = User(
+            email=email,
+            password_hash=hashed,
+            role=role,
+            is_confirmed=0
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    
     code = _generate_code(6, numeric=True)
-    user = User(
-        email=email,
-        password_hash=hashed,
-        role=role,
-        is_confirmed=0,
-        confirmation_code=code,
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    verification = EmailVerification(
+        user_id=user.id,  
+        code=code,
+        expires_at=expires_at,
+        consumed=False
     )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    db.add(verification)
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error saving verification code: {e}")
+        return False, "Database error saving verification code."
 
     body = f"Your Hire Flow confirmation code is: {code}"
     email_sent = True
@@ -130,12 +157,35 @@ def confirm_user(db: Session, email: str, code: str) -> Tuple[bool, str]:
         return False, "User not found."
     if user.is_confirmed:
         return True, "User already confirmed."
-    if user.confirmation_code and user.confirmation_code == code.strip():
-        user.is_confirmed = 1
-        user.confirmation_code = None
+    verification = (
+        db.query(EmailVerification)
+        .filter(
+            EmailVerification.user_id == user.id,
+            EmailVerification.code == code,
+            EmailVerification.consumed == False  # Ensure it hasn't been used
+        )
+        .first()
+    )
+
+    if not verification:
+        return False, "Invalid or expired confirmation code."
+
+    # 2. Check if the code is expired
+    if verification.expires_at < datetime.utcnow():
+        return False, "Confirmation code has expired. Please sign up again to get a new code."
+
+    # 3. All checks passed. Confirm the user and consume the code.
+    try:
+        user.is_confirmed = True
+        verification.consumed = True
+        db.add(user)
+        db.add(verification)
         db.commit()
-        return True, "Email confirmed."
-    return False, "Invalid confirmation code."
+        return True, "Email confirmed successfully. You can now log in."
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error confirming user: {e}")
+        return False, "An error occurred during confirmation."
 
 
 def authenticate_user(

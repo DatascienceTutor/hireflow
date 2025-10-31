@@ -57,15 +57,17 @@ def render_manager():
             # Join Interview -> Candidate (on ID) -> Job (on ID)
             reviews = (
                 db.query(
+                    Candidate.id,
                     Candidate.name,
                     Candidate.candidate_code,
                     Job.title.label("job_title"),
                     Interview.status,
                     Interview.evaluation_status,
                     Interview.final_score,
+                    Interview.id.label("interview_id")
                 )
-                .join(Candidate, Candidate.candidate_code == Interview.candidate_id)
-                .join(Job, Job.job_code == Interview.job_id)
+                .join(Candidate, Candidate.id == Interview.candidate_id)
+                .join(Job, Job.id == Interview.job_id)
                 .filter(Job.manager_email == manager_email)
                 .all()
             )
@@ -110,7 +112,7 @@ def render_manager():
                             Question.id == CandidateAnswer.question_id,
                         )
                         .filter(
-                            CandidateAnswer.candidate_id == review.candidate_code
+                            CandidateAnswer.interview_id == review.interview_id
                         )
                         .all()
                     )
@@ -207,7 +209,7 @@ def render_resume_upload_page():
     job_code_display = None
     with contextlib.closing(next(get_db())) as db:
         unique_job_codes = get_unique_column_values(
-            db, Job, ["job_code", "title"]
+            db, Job, ["id","job_code", "title"]
         )
 
     job_code_display = create_searchbox(
@@ -215,7 +217,7 @@ def render_resume_upload_page():
         placeholder="Search for a Job Code...",
         key="resume_job_code_searchbox",
         data=unique_job_codes,
-        display_fn=lambda x: f"{x[0]}_{x[1]}",
+        display_fn=lambda x: f"{x[1]}_{x[2]}",
         return_fn=lambda x: x[0],
     )
     
@@ -232,7 +234,7 @@ def render_resume_upload_page():
     if job_code_display:
         with contextlib.closing(next(get_db())) as db:
             tech = get_column_value_by_condition(
-                            db, Job, "job_code", job_code_display.split("_")[0], "tech"
+                            db, Job, "id", job_code_display, "tech"
                         )
     
     submitted = st.button("Upload and Save Resume")
@@ -247,7 +249,7 @@ def render_resume_upload_page():
                 job_description = None
                 with contextlib.closing(next(get_db())) as db:
                     job_description = get_column_value_by_condition(
-                        db, Job, "job_code", job_code_display, "description"
+                        db, Job, "id", job_code_display, "description"
                     )
 
                 if not job_description:
@@ -269,9 +271,8 @@ def render_resume_upload_page():
                         name=name,
                         email=email_id,
                         tech=tech,
-                        job_code=job_code_display,
                         resume=resume_text,
-                        job_description=job_description,
+                        job_id=job_code_display
                     )
                     st.success(
                         f"✅ Resume '{resume_db.name}' saved successfully."
@@ -298,24 +299,24 @@ def render_assign_interview_page():
     selected_candidate = None
     with contextlib.closing(next(get_db())) as db:
         # Fetch all candidates (code and name) for the searchbox
-        all_candidates = get_unique_column_values(db, Candidate, ["candidate_code", "name"])
+        all_candidates = get_unique_column_values(db, Candidate, ["id","candidate_code", "name"])
     
     candidate_code_display = create_searchbox(
         label="Search for Candidate by Code or Name",
         placeholder="Type code or name...",
         key="assign_candidate_searchbox",
         data=all_candidates,
-        display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and name
+        display_fn=lambda x: f"{x[1]}_{x[2]}", # Show code and name
         return_fn=lambda x: x[0] if x else None, # Return only the code
     )
 
     if candidate_code_display:
         # Fetch the full candidate object once selected
         with contextlib.closing(next(get_db())) as db:
-            selected_candidate = db.query(Candidate).filter(Candidate.candidate_code == candidate_code_display.split("_")[0]).first()
+            selected_candidate = db.query(Candidate).filter(Candidate.id == candidate_code_display).first()
         if selected_candidate:
             st.success(f"Selected Candidate: **{selected_candidate.name}** ({selected_candidate.candidate_code})")
-            candidate_code = selected_candidate.candidate_code # Store the code
+            candidate_code = selected_candidate.id # Store the code
         else:
             st.error("Selected candidate not found in database.")
 
@@ -326,7 +327,7 @@ def render_assign_interview_page():
     if candidate_code: # Only show job selection if a candidate is selected
         with contextlib.closing(next(get_db())) as db:
             # Fetch only jobs created by this manager
-            manager_jobs = db.query(Job.job_code, Job.title).all()
+            manager_jobs = db.query(Job.id,Job.job_code, Job.title).all()
 
         if not manager_jobs:
             st.warning("You have not created any jobs yet. Please upload a JD first.")
@@ -338,17 +339,17 @@ def render_assign_interview_page():
             placeholder="Type code or title...",
             key="assign_job_searchbox",
             data=manager_jobs,
-            display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and title
+            display_fn=lambda x: f"{x[1]}_{x[2]}", # Show code and title
             return_fn=lambda x: x[0] if x else None, # Return only the code
         )
 
         if job_code_display:
              # Fetch the full job object
             with contextlib.closing(next(get_db())) as db:
-                selected_job = db.query(Job).filter(Job.job_code == job_code_display.split("_")[0]).first()
+                selected_job = db.query(Job).filter(Job.id == job_code_display).first()
             if selected_job:
                 st.success(f"Selected Job: **{selected_job.title}** ({selected_job.job_code})")
-                job_code = selected_job.job_code # Store the code
+                job_code = selected_job.id # Store the code
             else:
                  st.error("Selected job not found.")
     st.markdown("---")
@@ -359,8 +360,8 @@ def render_assign_interview_page():
                 with contextlib.closing(next(get_db())) as db:
                     # Check if this assignment already exists
                     existing_interview = db.query(Interview).filter(
-                        Interview.candidate_id == selected_candidate.candidate_code, # Use candidate's integer ID
-                        Interview.job_id == selected_job.job_code          # Use job's integer ID
+                        Interview.candidate_id == selected_candidate.id, # Use candidate's integer ID
+                        Interview.job_id == selected_job.id          # Use job's integer ID
                     ).first()
 
                     if existing_interview:
@@ -368,8 +369,8 @@ def render_assign_interview_page():
                     else:
                         # Create the new Interview record
                         new_interview = Interview(
-                            job_id=selected_job.job_code,
-                            candidate_id=selected_candidate.candidate_code,
+                            job_id=selected_job.id,
+                            candidate_id=selected_candidate.id,
                             status="Pending", # Or "Assigned"
                             evaluation_status="Not Evaluated",
                             created_at=datetime.utcnow()
@@ -427,7 +428,7 @@ def render_generate_questions_page():
 
     with contextlib.closing(next(get_db())) as db:
         # Fetch candidate code, name, and ID
-        all_candidates = get_unique_column_values(db, Candidate, ["candidate_code", "name", "id"])
+        all_candidates = get_unique_column_values(db, Candidate, ["id","candidate_code", "name"])
 
     # Searchbox to select candidate
     candidate_selection = create_searchbox(
@@ -435,7 +436,7 @@ def render_generate_questions_page():
         placeholder="Type code or name...",
         key="genq_candidate_searchbox_v3", # Unique key
         data=all_candidates,
-        display_fn=lambda x: f"{x[0]}_{x[1]}", # Show code and name
+        display_fn=lambda x: f"{x[1]}_{x[2]}", # Show code and name
         # Return the whole tuple (code, name, id)
         return_fn=lambda x: x if x else None
     )
@@ -446,7 +447,7 @@ def render_generate_questions_page():
         st.rerun()
     
     if st.session_state.genq_selected_candidate_info:
-        st.success(f"Selected Candidate: **{st.session_state.genq_selected_candidate_info[1]}** ({st.session_state.genq_selected_candidate_info[0]})")
+        st.success(f"Selected Candidate: **{st.session_state.genq_selected_candidate_info[1]}** ({st.session_state.genq_selected_candidate_info[2]})")
     else:
         st.info("Select a candidate to see their pending interviews.")
         st.stop()
@@ -457,8 +458,8 @@ def render_generate_questions_page():
  
     with contextlib.closing(next(get_db())) as db:
         pending_interviews_query = (
-            db.query(Job.job_code, Job.title) # Select Job details needed for display/return
-            .join(Interview, Job.job_code == Interview.job_id)
+            db.query(Job.id,Job.job_code, Job.title) # Select Job details needed for display/return
+            .join(Interview, Job.id == Interview.job_id)
             .filter(Interview.candidate_id == candidate_id_for_query) # Filter by selected candidate ID
             .filter(Interview.status == "Pending")
             .order_by(Job.title) # Optional: Order the list
@@ -478,16 +479,16 @@ def render_generate_questions_page():
             key="genq_job_searchbox_v3", # Unique key
             data=pending_jobs_for_candidate,
             # Display job code and title
-            display_fn=lambda x: f"{x[0]}_{x[1]}",
+            display_fn=lambda x: f"{x[1]}_{x[2]}",
             # Return the job_code
-            return_fn=lambda x: x[0] if x else None
+            return_fn=lambda x: x if x else None
         )
         if job_selection != st.session_state.genq_selected_job_code:
             st.session_state.genq_selected_job_code = job_selection
             st.rerun() # Rerun if job selection changes
 
         if st.session_state.genq_selected_job_code:
-             st.success(f"Selected Job: **{st.session_state.genq_selected_job_code}**")
+             st.success(f"Selected Job: **{st.session_state.genq_selected_job_code[1]}**({st.session_state.genq_selected_job_code[2]})")
         else:
              st.info("Select a pending interview/job for the chosen candidate.")
     
@@ -500,12 +501,12 @@ def render_generate_questions_page():
     can_generate = bool(st.session_state.genq_selected_candidate_info and st.session_state.genq_selected_job_code)
 
     if st.button("Generate Questions", disabled=not can_generate,type='primary'):
-        job_code_to_use = st.session_state.genq_selected_job_code
+        job_code_to_use = st.session_state.genq_selected_job_code[0]
         job_description = None
 
         # Fetch the description ONLY from the selected JOB CODE
         with contextlib.closing(next(get_db())) as db:
-            selected_job_obj = db.query(Job.description).filter(Job.job_code == job_code_to_use).first()
+            selected_job_obj = db.query(Job.description).filter(Job.id == job_code_to_use).first()
             if selected_job_obj:
                 job_description = selected_job_obj.description
             else:
@@ -513,7 +514,7 @@ def render_generate_questions_page():
                 st.stop() # Stop if job vanished somehow
 
         if job_description:
-            st.info(f"Using description from selected Job: {job_code_to_use}")
+            st.info(f"Using description from selected Job: {st.session_state.genq_selected_job_code[1]}")
             st.session_state["current_job_code_api"] = job_code_to_use # Store for saving
 
             with st.spinner("Generating questions..."):
@@ -681,7 +682,7 @@ def render_generate_questions_page():
                             for idx, qa_save in enumerate(gen_qas_to_save):
                                 # (Your existing Question object creation logic...)
                                 q_row = Question(
-                                    job_code=job_code_to_save, # Use correct job code
+                                    job_id=job_code_to_save, # Use correct job code
                                     question_text=qa_save.get("question", ""),
                                     model_answer=qa_save.get("answer", ""),
                                     keywords=qa_save.get("keywords", []),
@@ -710,10 +711,6 @@ def render_generate_questions_page():
                             st.session_state["edits_pending_api"] = {}
                             st.session_state["to_delete_indices_api"] = []
                             st.session_state["current_job_code_api"] = None
-                            # Maybe clear selections too?
-                            # st.session_state.genq_selected_candidate_info = None
-                            # st.session_state.genq_selected_job_code = None
-                            st.rerun() # Rerun to clear UI
 
                         except Exception as e:
                             try: db.rollback()

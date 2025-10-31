@@ -8,6 +8,7 @@ from typing import List, Dict, Any
 import streamlit as st
 from sqlalchemy.orm import Session
 from models import candidate
+from models.job import Job
 from services.common import get_unique_column_values, header_with_progress, get_column_value_by_condition
 from services.candidate_service import save_candidate_answers, cosine_similarity
 from models.question import Question
@@ -22,7 +23,7 @@ import logging
 
 # --- Helper Function for DB Submission ---
 
-def _submit_all_answers(candidate_id: int, answers: Dict[int, str], answer_embeddings: Dict[int, list] | None = None) -> Dict[str, Any]:
+def _submit_all_answers(candidate_id: int,interview_id: int, answers: Dict[int, str], answer_embeddings: Dict[int, list] | None = None) -> Dict[str, Any]:
     """
     Persist answers using a fresh DB session.
     Always returns a dict with at least the key 'saved_count' and optionally 'error'.
@@ -34,7 +35,7 @@ def _submit_all_answers(candidate_id: int, answers: Dict[int, str], answer_embed
                 return {"saved_count": 0, "error": "candidate not found"}
 
             # Call save function (may raise)
-            res = save_candidate_answers(db, cand, answers, answer_embeddings)
+            res = save_candidate_answers(db, cand,interview_id, answers, answer_embeddings)
 
             # Normalize response: ensure dict is returned
             if isinstance(res, dict):
@@ -63,31 +64,73 @@ def render_candidate_dashboard():
     if not user_email:
         st.warning("Session invalid. Please log in again.")
         return
+    
+    # --- State Initialization ---
+    st.session_state.setdefault("selected_interview_id", None)
+    st.session_state.setdefault("selected_job_code", None)
+    st.session_state.setdefault("selected_job_title", None)
 
     # Load candidate (full model instance)
     with contextlib.closing(next(get_db())) as db:
         candidate = get_column_value_by_condition(
             db, Candidate, "email", user_email, target_column=None, multiple=False
         )
-        Interview_pending=db.query(Interview).filter((Interview.status=="Pending")&(Interview.candidate_id==candidate.candidate_code)).first()
-
     if not candidate:
         st.error("Candidate not found for this email. Please contact admin.")
         return
+    Interview_pending=[]
+    if not st.session_state.selected_interview_id:
+        with contextlib.closing(next(get_db())) as db:
+            Interview_pending = (
+                db.query(Interview,Job.id, Job.title, Job.job_code)
+                .join(Job, Job.id == Interview.job_id)
+                .filter(Interview.candidate_id == candidate.id)
+                .filter(Interview.status == "Pending")
+                .all()
+            )
+    if not st.session_state.selected_interview_id:
+
+        # --- NEW LOGIC ---
+        # If the list of pending interviews is empty, they are done.
+        if not Interview_pending:
+            st.success("You have no pending interviews. Thank you!")
+            st.info("The hiring team will get back to you soon.")
+            # Clear any old state
+            st.session_state.pop("interview_questions", None)
+            st.session_state.pop("interview_answers", None)
+            st.session_state.pop("interview_index", None)
+            return
+        # --- END NEW LOGIC ---
+
+        # If we are here, it means pending_interviews has items.
+        st.write("Please select an interview to begin:")
+        st.markdown(
+            """
+            - You can answer questions one by one and navigate using **Next** / **Back**.
+            - Your answers will be saved only when you click **Submit** at the end.
+            """
+        )
+
+        for interview, job_id, job_title, job_code in Interview_pending:
+            if st.button(
+                f"Start Interview for: **{job_title}**",
+                key=f"start_{interview.id}",
+                type="primary",
+            ):
+                # Lock in the selected interview and job details
+                st.session_state.selected_interview_id = interview.id
+                st.session_state.selected_job_code = job_id
+                st.session_state.selected_job_title = job_title
+
+                # Clear any old Q&A state
+                st.session_state.pop("interview_questions", None)
+                st.session_state.pop("interview_answers", None)
+                st.session_state.pop("interview_index", None)
+                st.rerun()  # Rerun to enter State 2
+        return  # Stop here until an interview is selected
+
 
     st.subheader(f"My Interview")
-
-    if not Interview_pending:
-        st.success(
-            "You have already completed your interview. Thank you!"
-        )
-        st.info("The hiring team will get back to you soon.")
-        # Clear any session state just in case
-        st.session_state["interview_started"] = False
-        st.session_state.pop("interview_questions", None)
-        st.session_state.pop("interview_answers", None)
-        st.session_state.pop("interview_index", None)
-        return
     
     # --- State 1: Interview Not Started ---
     if not st.session_state.get("interview_started"):
@@ -111,9 +154,10 @@ def render_candidate_dashboard():
 
     # --- Initialization: load questions once ---
     if "interview_questions" not in st.session_state:
+        selected_job_id = st.session_state.get("selected_job_code")
         with contextlib.closing(next(get_db())) as db:
             questions_obj_list: List[Question] = get_column_value_by_condition(
-                db, Question, "job_code", Interview_pending.job_id, target_column=None, multiple=True
+                db, Question, "job_id", selected_job_id, target_column=None, multiple=True
             )
 
         if not questions_obj_list:
@@ -202,7 +246,7 @@ def render_candidate_dashboard():
                             logging.warning(f"Could not generate embedding for answer to QID {qid_str}: {e}")
 
                     # Persist answers
-                    result = _submit_all_answers(candidate.id, answers_payload, embeddings if embeddings else None)
+                    result = _submit_all_answers(candidate.id, st.session_state.selected_interview_id, answers_payload, embeddings if embeddings else None)
                     
                     if not isinstance(result, dict):
                         st.error("Unexpected error saving answers. Please contact admin.")
@@ -210,6 +254,7 @@ def render_candidate_dashboard():
                         if result.get("saved_count", 0) > 0:
                             st.success("Your responses have been successfully saved. Thank you!")
                             # Clear interview state
+                            st.session_state.selected_interview_id = None
                             st.session_state["interview_started"] = False
                             st.session_state.pop("interview_questions", None)
                             st.session_state.pop("interview_answers", None)
@@ -246,10 +291,20 @@ def render_candidate_profile():
     with st.form("profile_form"):
         st.text_input("Name", value=candidate.name, key="profile_name")
         st.text_input("Email", value=candidate.email, disabled=True)
-        st.text_input("Job Code", value=candidate.job_code, disabled=True)
+        st.text_input("Candidate Code", value=candidate.candidate_code, disabled=True)
         st.text_input("Technology", value=candidate.tech, disabled=True)
         
         if st.form_submit_button("Update Profile"):
-            # In a real app, you would save the updated name here
-            st.success("Profile updated successfully")
-
+            try:
+                with contextlib.closing(next(get_db())) as db:
+                    cand_to_update = (
+                        db.query(Candidate).filter(Candidate.id == candidate.id).first()
+                    )
+                    if cand_to_update:
+                        cand_to_update.name = st.session_state.profile_name
+                        db.commit()
+                        st.success("Profile updated successfully!")
+                    else:
+                        st.error("Could not find profile to update.")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
