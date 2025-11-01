@@ -1,0 +1,12 @@
+DATABASE_URL=sqlite:///db/hireflow.db
+VERIFICATION_CODE_EXPIRY_MIN=15
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=<Your Gmail ID@gmail.com>
+SMTP_PASS=<Your Gmail Application Password>
+FROM_EMAIL=hireflow@example.com
+
+
+OPENAI_API_KEY=<Your open AI Api Key starts with sk- >
+EMBEDDING_MODEL=text-embedding-3-small
+OPENAI_MODEL=gpt-4.1-mini
