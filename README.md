@@ -5,7 +5,7 @@ Hire Flow is a multi-tenant, AI-driven web application built with Streamlit desi
 Core Features
 
 For Hiring Managers
-Secure Sign-up: Automatically assigns "Manager" role based on company email domain (e.g., @ibm.com), while public domains (@gmail.com) are assigned the "Candidate" role.
+Secure Sign-up: Automatically assigns "Manager" role based on company email domain (e.g., @ibm.com), while public domains (@gmail.com) are assigned the "Candidate" role (That is a production integration). Currently while signup user has to select either candidate or manager role.
 
 Multi-Tenant Dashboard: Managers only see the jobs, candidates, and interview results associated with their own account (filtered by manager_email).
 
@@ -62,45 +62,44 @@ Setup & Local Installation
 Follow these steps to get the application running on your local machine.
 
 1. Prerequisites
-Python 3.10 or later.
-
-An OpenAI API Key.
-
+   
+   Python 3.10 or later.
+   An OpenAI API Key.
+   
 2. Clone the Repository
-
-git clone [https://your-repo-url.com/hire-flow.git](https://your-repo-url.com/hire-flow.git)
-cd hire-flow
-
+   
+        git clone https://github.com/DatascienceTutor/hireflow
+  
+        cd hire-flow
 
 3. Install Dependencies
-It's highly recommended to use a virtual environment.
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+ 
+    It's highly recommended to use a virtual environment.
+    # Create a virtual environment
+        python -m venv venv
+        source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install required packages
-pip install -r requirements.txt
-
+    # Install required packages
+        pip install -r requirements.txt
 
 4. Set Up Environment Variables
+   
 Create a file named .env in the root directory. This is critical for the app to function.
-.env.example
-# Get your key from platform.openai.com
-OPENAI_API_KEY="sk-..."
+please see .env sample for details
 
-# Specify the model to use for generation (must support JSON mode)
-OPENAI_MODEL="gpt-4o-mini" 
+    # Get your key from platform.openai.com
+    OPENAI_API_KEY="sk-..."
 
+    # Specify the model to use for generation (must support JSON mode)
+    OPENAI_MODEL="gpt-4.1-mini" 
 
 5. Initialize the Database
 The first time you run the app, it will create the SQLite database (hireflow.db) and all the tables defined in your models/ directory.
 streamlit run app.py
 
-
 6. Run the Application
 You are now ready to run the app!
 streamlit run app.py
-
 
 Open your browser to the local URL (usually http://localhost:8501) and sign up as both a manager (using a company email) and a candidate (using a gmail/outlook email) to test the full flow.
 Production Deployment
@@ -110,17 +109,14 @@ Create a Production DB: Create a new "Flexible Server" on Azure Database for Pos
 Install the Driver:
 pip install psycopg2-binary
 
+Change Connection String: Update your db/session.py file (or set an environment variable DATABASE_URL) to point to your new database instead of SQLite.
+  Example db/session.py change:
+     
+	DATABASE_URL = "sqlite:///./hireflow.db"  <-- Old
+    DATABASE_URL = "postgresql+psycopg2://<USER>:<PASSWORD>@<HOST>:<PORT>/<DB_NAME>"  <-- New
 
-Change Connection String: Update your db/session.py file (or set an environment variable DATABASE_URL) to point to your new database instead of SQLite.Example db/session.py change:
-# DATABASE_URL = "sqlite:///./hireflow.db" # <-- Old
-DATABASE_URL = "postgresql+psycopg2://<USER>:<PASSWORD>@<HOST>:<PORT>/<DB_NAME>" # <-- New
-
-# ...
-
-# if "sqlite" in DATABASE_URL:
-#     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-# else:
-//     engine = create_engine(DATABASE_URL) # <-- New
-
-
+    if "sqlite" in DATABASE_URL:
+      engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    else:
+      engine = create_engine(DATABASE_URL) # <-- New
 Because you are using SQLAlchemy, no other code changes are required to switch your database.
