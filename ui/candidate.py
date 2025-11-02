@@ -20,6 +20,7 @@ from models.interview import Interview
 from services.openai_service import get_embedding
 import traceback
 import logging
+from models.candidate_answer import CandidateAnswer
 
 # --- Helper Function for DB Submission ---
 
@@ -266,6 +267,101 @@ def render_candidate_dashboard():
                             trace = result.get("trace")
                             if trace:
                                 st.code(trace) # For debugging
+
+
+def render_candidate_interview_history():
+    """
+    Renders the candidate's history of completed interviews.
+    """
+    st.subheader("My Interview History")
+    st.write("Review your submissions for completed interviews.")
+
+    user_email = st.session_state.get("user_email")
+    if not user_email:
+        st.warning("Session invalid. Please log in again.")
+        return
+
+    try:
+        with contextlib.closing(next(get_db())) as db:
+            candidate = db.query(Candidate).filter(Candidate.email == user_email).first()
+            if not candidate:
+                st.error("Candidate not found.")
+                return
+
+            # Query for all non-pending interviews
+            completed_reviews = (
+                db.query(
+                    Job.title.label("job_title"),
+                    Interview.status,
+                    Interview.evaluation_status,
+                    Interview.id.label("interview_id"),
+                    Interview.final_score
+                )
+                .join(Job, Job.id == Interview.job_id)
+                .filter(Interview.candidate_id == candidate.id)
+                .filter(Interview.status != "Pending")
+                .order_by(Interview.created_at.desc())
+                .all()
+            )
+
+        if not completed_reviews:
+            st.info("You have no completed interviews to review.")
+            return
+
+        st.write(f"Displaying completed interviews:")
+
+        # Display each completed interview in an expander
+        for review in completed_reviews:
+            title = f"**{review.job_title}**"
+            
+            # Show score if it's evaluated
+            # score_display = ""
+            # if review.status == "Completed" and review.evaluation_status.startswith("LLM"):
+            #     score_display = f"| Score: {review.final_score:.1f}" if review.final_score is not None else "| Score: N/A"
+
+            expander_title = f"{title} | Status: **{review.status}**"
+
+            with st.expander(expander_title):
+                st.write(f"#### Your Submitted Answers for {review.job_title}")
+                
+                # Inner query to get individual answers
+                with contextlib.closing(next(get_db())) as db_inner:
+                    answers = (
+                        db_inner.query(
+                            Question.question_text,
+                            CandidateAnswer.answer_text
+                        )
+                        .join(
+                            CandidateAnswer,
+                            Question.id == CandidateAnswer.question_id,
+                        )
+                        .filter(
+                            CandidateAnswer.interview_id == review.interview_id
+                        )
+                        .all()
+                    )
+
+                if not answers:
+                    st.warning("No individual answers were found for this interview.")
+                    continue
+
+                # Loop and display Q&A (read-only)
+                for i, answer in enumerate(answers):
+                    st.markdown("---")
+                    st.markdown(f"**Q{i+1}: {answer.question_text}**")
+                    st.markdown("**Your Answer:**")
+                    st.text_area(
+                        "Answer",
+                        value=answer.answer_text,
+                        disabled=True,
+                        key=f"hist_ans_{review.interview_id}_{i}",
+                        label_visibility="collapsed",
+                    )
+
+    except Exception as e:
+        st.error(f"An error occurred while fetching your interview history:")
+        st.exception(e)
+        logger.error(f"Candidate History Error: {traceback.format_exc()}")
 
 # --- Candidate Profile Tab ---
 

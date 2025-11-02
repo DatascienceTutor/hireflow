@@ -87,13 +87,15 @@ def main():
             st.sidebar.markdown("### Menu")
             nav_selection = st.sidebar.radio(
                 "Navigation", 
-                ["Dashboard", "My Profile"], 
+                ["Dashboard", "Interview History","My Profile"], 
                 key="candidate_nav",
                 label_visibility="collapsed"
             )
 
             if nav_selection == "Dashboard":
                 candidate_page.render_candidate_dashboard() 
+            elif nav_selection == "Interview History":
+                candidate_page.render_candidate_interview_history()
             elif nav_selection == "My Profile":
                 candidate_page.render_candidate_profile()
 
