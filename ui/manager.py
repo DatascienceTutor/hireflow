@@ -51,11 +51,49 @@ def render_manager():
     if not manager_email:
         st.warning("Could not identify your session. Please log in again.")
         return
+    
+    selected_candidate_id = None
+    selected_status = "All"
+
     try:
         with contextlib.closing(next(get_db())) as db:
+
+            candidates_for_manager = (
+                db.query(Candidate.id, Candidate.name, Candidate.candidate_code)
+                .join(Interview, Candidate.id == Interview.candidate_id)
+                .join(Job, Job.id == Interview.job_id)
+                .filter(Job.manager_email == manager_email)
+                .distinct() # Ensure each candidate appears only once
+                .all()
+            )
+            
+            status_options = ["All", "Pending", "Completed"]
+
+            # --- 3. Add the filter widgets ---
+            st.markdown("---")
+            col1, col2 = st.columns([3, 2])
+
+            with col1:
+                # NEW: Searchbox for Candidate
+                selected_candidate_id = create_searchbox(
+                    label="Search by Candidate Name",
+                    placeholder="Type a candidate's name...",
+                    key="dashboard_candidate_search",
+                    data=candidates_for_manager,
+                    display_fn=lambda x: f"{x[1]}_({x[2]})", # Show Name (Code)
+                    return_fn=lambda x: x[0] if x else None,  # Return the Candidate ID
+                )
+            
+            with col2:
+                selected_status = st.selectbox(
+                    "Filter by Status",
+                    options=status_options,
+                )
+            st.markdown("---")
+
             # --- NEW, SIMPLER QUERY ---
             # Join Interview -> Candidate (on ID) -> Job (on ID)
-            reviews = (
+            base_query = (
                 db.query(
                     Candidate.id,
                     Candidate.name,
@@ -69,9 +107,21 @@ def render_manager():
                 .join(Candidate, Candidate.id == Interview.candidate_id)
                 .join(Job, Job.id == Interview.job_id)
                 .filter(Job.manager_email == manager_email)
-                .all()
             )
             # --- END NEW QUERY ---
+        
+        if selected_candidate_id: # If a candidate was selected
+                base_query = base_query.filter(Candidate.id == selected_candidate_id)
+            
+        if selected_status != "All": # If user selected "Pending" or "Completed"
+                base_query = base_query.filter(Interview.status == selected_status)
+        
+        if selected_candidate_id or selected_status != "All":
+                reviews = base_query.order_by(Interview.created_at.desc()).all()
+        else:
+            # No filters selected, show message instead of all results
+            st.info("Please select a candidate or filter by status to see results.")
+            return # Stop execution to prevent showing all results
 
         if not reviews:
             st.info("No interviews found. Upload JD and candidate resumes to create them.")
@@ -130,7 +180,7 @@ def render_manager():
                         "Answer",
                         value=answer.answer_text,
                         disabled=True,
-                        key=f"ans_{review.candidate_code}_{i}",
+                        key=f"ans_{review.candidate_code}_{review.interview_id}_{i}",
                         label_visibility="collapsed",
                     )
                     st.markdown(
