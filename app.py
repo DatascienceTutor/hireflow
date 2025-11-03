@@ -25,6 +25,11 @@ import ui.manager as manager_page
 
 load_dotenv()
 
+def load_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
+
+load_css(".streamlit/style.css")
 
 def init_db():
     """

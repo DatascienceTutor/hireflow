@@ -1,0 +1,168 @@
+/* =================================================================
+   Hire Flow - Professional Blue & White Theme
+   This file applies a clean, modern "SaaS" feel to the entire app.
+   FIXED: Styles are now "scoped" to prevent sidebar/main content leaks.
+================================================================= */
+
+/* --- Base & Backgrounds --- */
+body {
+    background-color: #f0f2f6 !important; /* Subtle light grey background */
+}
+
+/* --- Sidebar --- */
+[data-testid="stSidebar"] {
+    background-color: #ffffff !important; /* Clean white sidebar */
+    border-right: 1px solid #e0e0e0;
+}
+/* Style all text inside the sidebar to be consistent */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
+    font-size: 0.95rem !important;
+}
+/* Style the sidebar title ("Welcome...") */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1 {
+    font-size: 1.25rem !important; /* Make title slightly larger */
+    color: #0068c9 !important; /* Use primary blue */
+    font-weight: 600;
+}
+/* Style the sidebar caption ("Role...") */
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p {
+    font-size: 0.85rem !important;
+    color: #555555 !important;
+}
+/* Style the sidebar "Log out" button */
+[data-testid="stSidebar"] [data-testid="stButton"] button {
+    border-radius: 6px !important;
+    border: 1px solid #c0c0c0 !important;
+    background-color: #ffffff !important;
+    color: #333333 !important;
+    width: 100%; /* Make button full-width */
+}
+[data-testid="stSidebar"] [data-testid="stButton"] button:hover {
+    background-color: #f7f7f7 !important;
+    border-color: #a0a0a0 !important;
+}
+
+/* --- Main Content Area --- */
+/* Target only the main app container's vertical blocks for padding */
+[data-testid="stAppViewContainer"] > .main .block-container {
+    padding: 2rem 3rem 3rem 3rem !important; /* Add more padding */
+}
+
+/* --- Card Layout (Main Content Only) --- */
+/* Style st.container(border=True) to look like a modern "card" */
+[data-testid="stAppViewContainer"] [data-testid="stVerticalBlockBorderWrapper"] > div {
+    background-color: #ffffff !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    padding: 20px !important;
+}
+
+/* --- Text Inputs & Selectboxes (Main Content Only) --- */
+[data-testid="stAppViewContainer"] [data-testid="stTextInput"] > div > div > input,
+[data-testid="stAppViewContainer"] [data-testid="stSelectbox"] > div > div,
+[data-testid="stAppViewContainer"] [data-testid="stDateInput"] > div > div {
+    border: 1px solid #c0c0c0 !important;
+    background-color: #ffffff !important;
+    border-radius: 6px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) inset !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+[data-testid="stAppViewContainer"] div[data-testid="stSearchbox"] > div {
+    border: 1px solid #c0c0c0 !important;
+    background-color: #ffffff !important;
+    border-radius: 6px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) inset !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Add a focus ring (Main Content Only) */
+[data-testid="stAppViewContainer"] [data-testid="stTextInput"] > div > div > input:focus,
+[data-testid="stAppViewContainer"] [data-testid="stSelectbox"] > div > div:focus-within,
+[data-testid="stAppViewContainer"] div[data-testid="stSearchbox"] > div:focus-within {
+    border-color: #0068c9 !important; /* Your primaryColor */
+    box-shadow: 0 0 0 3px rgba(0, 104, 201, 0.15) !important;
+    outline: none !important;
+}
+
+/* --- Buttons (Main Content Only) --- */
+[data-testid="stAppViewContainer"] [data-testid="stButton"] button {
+    border-radius: 6px !important;
+    border: 1px solid #c0c0c0 !important;
+    background-color: #ffffff !important;
+    color: #333333 !important;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+[data-testid="stAppViewContainer"] [data-testid="stButton"] button:hover {
+    background-color: #f7f7f7 !important;
+    border-color: #a0a0a0 !important;
+}
+
+/* Style PRIMARY buttons (Main Content Only) */
+[data-testid="stAppViewContainer"] [data-testid="stButton"] button[kind="primary"] {
+    background-color: #0068c9 !important; /* Your primaryColor */
+    color: white !important;
+    border: none !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1) !important;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+}
+[data-testid="stAppViewContainer"] [data-testid="stButton"] button[kind="primary"]:hover {
+    background-color: #0058ab !important; /* Darker blue on hover */
+    transform: translateY(-1px);
+}
+[data-testid="stAppViewContainer"] [data-testid="stButton"] button[kind="primary"]:focus {
+    box-shadow: 0 0 0 3px rgba(0, 104, 201, 0.15) !important;
+}
+
+/* Form Submit Buttons (Main Content Only) */
+[data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button {
+    border-radius: 6px !important;
+    height: 2.5rem !important;
+}
+[data-testid="stAppViewContainer"] [data-testid="stFormSubmitButton"] button[kind="primary"] {
+    width: 100%; /* Make primary form buttons full-width */
+    font-weight: 600 !important;
+}
+
+/* --- Tabs (Main Content Only) --- */
+[data-testid="stAppViewContainer"] [data-testid="stTabs"] {
+    border-bottom: 2px solid #e0e0e0 !important;
+}
+[data-testid="stAppViewContainer"] [data-testid="stTabs"] button[data-selected="true"] {
+    color: #0068c9 !important;
+    border-bottom: 2px solid #0068c9 !important;
+    margin-bottom: -2px;
+}
+
+/* --- Expander (Main Content Only) --- */
+[data-testid="stAppViewContainer"] [data-testid="stExpander"] details {
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 8px !important;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+    background-color: #fafafa !important;
+}
+[data-testid="stAppViewContainer"] [data-testid="stExpander"] summary {
+    font-weight: 600 !important;
+    background-color: #ffffff !important;
+    border-radius: 8px 8px 0 0 !important;
+}
+
+/* --- Info/Warning/Error Boxes (Main Content Only) --- */
+[data-testid="stAppViewContainer"] [data-testid="stAlert"] {
+    border-radius: 6px !important;
+    border: none !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
+}
+[data-testid="stAppViewContainer"] [data-testid="stAlert"][kind="info"] {
+    background-color: #e6f6ff;
+    color: #0058ab;
+}
+[data-testid="stAppViewContainer"] [data-testid="stAlert"][kind="warning"] {
+    background-color: #fffbeb;
+    color: #b45309;
+}
+[data-testid="stAppViewContainer"] [data-testid="stAlert"][kind="error"] {
+    background-color: #feefee;
+    color: #cc2929;
+}
+
