@@ -218,7 +218,7 @@ def render_jd_upload_page():
         )
     title = st.text_input("Job Title",value=job_title_placeholder)
     
-    submitted = st.button("Upload and Save JD")
+    submitted = st.button("Upload and Save JD",type="primary")
     manager_email=st.session_state.get("user_email")
     if submitted:
         if not all([uploaded_file, tech, title]):
@@ -287,7 +287,7 @@ def render_resume_upload_page():
                             db, Job, "id", job_code_display, "tech"
                         )
     
-    submitted = st.button("Upload and Save Resume")
+    submitted = st.button("Upload and Save Resume",type="primary")
 
     if submitted:
         if not all([uploaded_file, tech, job_code_display, name]):
@@ -716,7 +716,7 @@ def render_generate_questions_page():
 
         # --- Save Button ---
         st.markdown("---")
-        if st.button("✅ Approve & Send to Candidate"):
+        if st.button("✅ Approve & Send to Candidate",type="primary"):
             gen_qas_to_save = st.session_state.get("generated_questions_api", [])
             job_code_to_save = st.session_state.get("current_job_code_api") # Use API-specific key
 

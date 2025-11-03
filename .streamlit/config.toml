@@ -1,6 +1,10 @@
 [server]
 enableStaticServing = true
 
+# --------------------------------------------------
+# FONT CONFIGURATION — POPPINS FAMILY
+# --------------------------------------------------
+
 [[theme.fontFaces]]
 family = "Poppins"
 url = "app/static/Poppins-Thin.ttf"
@@ -109,25 +113,31 @@ url = "app/static/Poppins-BlackItalic.ttf"
 style = "italic"
 weight = "900"
 
+
+# --------------------------------------------------
+# THEME CONFIGURATION — WHITE & BLUE PROFESSIONAL
+# --------------------------------------------------
+
 [theme]
-base = "dark"
-primaryColor = "#1ed760"
-backgroundColor = "#2a2a2a"
-secondaryBackgroundColor = "#121212"
-codeBackgroundColor = "#121212"
-textColor = "#ffffff"
-linkColor = "#1ed760"
-borderColor = "#7c7c7c"
+base = "light"
+primaryColor = "#0066CC"             # Professional deep blue
+backgroundColor = "#FFFFFF"            # Clean white background
+secondaryBackgroundColor = "#F5F7FA"   # Subtle light gray-blue for contrast panels
+codeBackgroundColor = "#E8F0FE"       # Soft blue for code areas
+textColor = "#1f2937"                # CHANGED: Softer dark slate grey (was #0A0A0A)
+linkColor = "#004B99"                # Muted deep blue for links
+borderColor = "#D0D7E2"                # Light blue-gray borders
 showWidgetBorder = true
 baseRadius = "0.3rem"
 buttonRadius = "full"
 font = "Poppins"
 headingFontWeights = [600, 500, 500, 500, 500, 500]
 headingFontSizes = ["3rem", "2.5rem", "2.25rem", "2rem", "1.5rem"]
-chartCategoricalColors = ["#ffc862", "#2d46b9", "#b49bc8"]
+chartCategoricalColors = ["#0074E4", "#0050A0", "#64B5F6", "#81D4FA", "#1565C0"]
 
 [theme.sidebar]
-backgroundColor = "#121212"
-secondaryBackgroundColor = "#000000"
-codeBackgroundColor = "#2a2a2a"
-borderColor = "#696969"
+backgroundColor = "#F5F7FA"           # Matches app panels
+secondaryBackgroundColor = "#E8F0FE"   # Light blue accent in sidebar
+codeBackgroundColor = "#E1EFFF"        # Subtle blue highlight
+borderColor = "#D0D7E2"
+
