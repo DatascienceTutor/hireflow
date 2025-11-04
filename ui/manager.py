@@ -29,6 +29,8 @@ from models.question import Question
 from models.interview import Interview  # <-- Import Interview model
 from sqlalchemy.exc import IntegrityError 
 from datetime import datetime
+import logging
+from services.openai_service import get_match_report
 
 from streamlit_searchbox import st_searchbox
 import re
@@ -40,7 +42,7 @@ from services.common import (
 )
 
 # --- Main Dashboard Tab (Renamed and Updated) ---
-
+logger = logging.getLogger(__name__)
 
 def render_manager():
     """
@@ -333,6 +335,44 @@ def render_resume_upload_page():
             logging.error(f"Resume Upload Error: {traceback.format_exc()}")
 
 
+def _display_match_report(report: Dict[str, Any]):
+    """Helper to display the AI match report in a clean format."""
+    
+    # Use a container for the report
+    with st.container(border=True):
+        st.subheader("🤖 AI Match Report")
+        
+        # 1. Score Metric
+        score = report.get('score', 0)
+        st.metric("Resume Match Score", f"{score}%")
+        
+        if score > 75:
+            st.success(f"**Strong Match:** {report.get('summary', 'No summary.')}")
+        elif score > 50:
+            st.warning(f"**Medium Match:** {report.get('summary', 'No summary.')}")
+        else:
+            st.error(f"**Weak Match:** {report.get('summary', 'No summary.')}")
+
+        # 2. Strengths and Gaps
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("##### Strengths (from Resume)")
+            strengths = report.get('strengths', [])
+            if strengths:
+                for s in strengths:
+                    st.markdown(f"- {s}")
+            else:
+                st.caption("No specific strengths identified.")
+        
+        with col2:
+            st.markdown("##### Gaps (from Job Description)")
+            gaps = report.get('gaps', [])
+            if gaps:
+                for g in gaps:
+                    st.markdown(f"- {g}")
+            else:
+                st.caption("No specific gaps identified.")
+
 # --- Generate Questions Tab ---
 
 def render_assign_interview_page():
@@ -347,6 +387,9 @@ def render_assign_interview_page():
     st.markdown("##### 1. Select Candidate")
     candidate_code = None
     selected_candidate = None
+    analysis_key = "assign_interview_analysis_result"
+    if analysis_key not in st.session_state:
+        st.session_state[analysis_key] = None
     with contextlib.closing(next(get_db())) as db:
         # Fetch all candidates (code and name) for the searchbox
         all_candidates = get_unique_column_values(db, Candidate, ["id","candidate_code", "name"])
@@ -404,6 +447,32 @@ def render_assign_interview_page():
                  st.error("Selected job not found.")
     st.markdown("---")
     if selected_candidate and selected_job:
+        if st.button(f"🔍 Analyze Fit for {selected_candidate.name}",type="primary"):
+                with st.spinner(f"AI is analyzing {selected_candidate.name}'s resume against the {selected_job.title} job description..."):
+                    try:
+                        with contextlib.closing(next(get_db())) as db_analyze:
+                            # Get the two text blobs
+                            resume_text = db_analyze.query(Candidate.resume).filter(Candidate.id == candidate_code).scalar()
+                            job_desc = db_analyze.query(Job.description).filter(Job.id == job_code).scalar()
+
+                            if not resume_text:
+                                st.error(f"Cannot analyze: Candidate {candidate_code_display} has no resume text on file.")
+                            elif not job_desc:
+                                st.error(f"Cannot analyze: Job {job_code_display} has no description on file.")
+                            else:
+                                # --- THIS IS THE AI CALL ---
+                                report = get_match_report(resume_text, job_desc)
+                                if report:
+                                    st.session_state[analysis_key] = report
+                                else:
+                                    st.error("AI analysis failed. Please try again.")
+                    except Exception as e:
+                        st.error(f"An error occurred during analysis: {e}")
+                        logger.error(f"Analysis Error: {traceback.format_exc()}")
+            
+            # --- Display the report if it exists in session state ---
+        if st.session_state[analysis_key]:
+            _display_match_report(st.session_state[analysis_key])
         st.markdown(f"Assign interview for **{selected_job.title}** to **{selected_candidate.name}**?")
         if st.button("Assign Interview", type="primary"):
             try:
@@ -753,7 +822,7 @@ def render_generate_questions_page():
                                 inserted += 1
 
                             db.commit()
-                            st.success(f"Saved {inserted} question(s) to DB for job {job_code_to_save}.")
+                            st.success(f"Saved {inserted} question(s) to DB and available in candidate screen.")
                             st.balloons()
 
                             # Clear state after successful save

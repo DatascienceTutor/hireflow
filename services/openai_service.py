@@ -21,6 +21,7 @@ import requests
 import openai
 from dotenv import load_dotenv
 from openai import OpenAI
+import httpx
 
 
 load_dotenv()
@@ -34,6 +35,8 @@ else:
     logging.warning(
         "OPENAI_API_KEY is not set. OpenAI calls will fail until you provide an API key."
     )
+
+logger = logging.getLogger(__name__)
 
 try:
     # newer OpenAI python client (supports OpenAI().embeddings.create)
@@ -373,4 +376,83 @@ def evaluate_answer_with_llm(question_text: str, model_answer: str, candidate_an
     except Exception as e:
         logging.error(f"Error during OpenAI LLM evaluation: {e}")
         return None
+
+
+def get_match_report(resume_text: str, job_description: str) -> Optional[Dict[str, Any]]:
+    """
+    Analyzes a candidate's resume against a job description.
+    Returns a dictionary with 'score', 'summary', 'strengths', and 'gaps'.
+    """
+    if not OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY not set.")
+        return None
+
+    system_prompt = (
+        "You are an expert technical recruiter and hiring manager. "
+        "Your task is to analyze a candidate's resume against a specific job description. "
+        "You MUST return ONLY a valid JSON object with four keys: "
+        "'score' (an integer from 0-100 representing the percentage match), "
+        "'summary' (a 2-sentence professional summary of the candidate's fit), "
+        "'strengths' (a list of 3-5 bullet points of their key qualifications that match the job), and "
+        "'gaps' (a list of 2-3 bullet points of key requirements from the job that appear to be missing from the resume)."
+    )
+    
+    user_prompt = f"""
+    **Job Description:**
+    ---
+    {job_description}
+    ---
+
+    **Candidate's Resume:**
+    ---
+    {resume_text}
+    ---
+
+    Please provide your analysis as a JSON object: 
+    {{"score": <int>, "summary": "<string>", "strengths": ["<string>"], "gaps": ["<string>"]}}
+    """
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": OPENAI_MODEL, # Use a strong model for this, gpt-4o-mini or gpt-4-turbo
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.1, # Be factual and consistent
+    }
+
+    try:
+        with httpx.Client(timeout=90.0) as client:
+            OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+            response = client.post(OPENAI_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+
+            response_data = response.json()
+            content = response_data.get("choices", [{}])[0].get("message", {}).get("content")
+
+            if content:
+                parsed_json = json.loads(content)
+                # Ensure all keys are present
+                parsed_json.setdefault('score', 0)
+                parsed_json.setdefault('summary', 'No summary provided.')
+                parsed_json.setdefault('strengths', [])
+                parsed_json.setdefault('gaps', [])
+                return parsed_json
+            else:
+                logger.error("Failed to get match report: No content in API response.")
+                return None
+
+    except httpx.HTTPStatusError as http_err:
+        logger.error(f"HTTP error getting match report: {http_err} - {http_err.response.text}")
+    except json.JSONDecodeError:
+        logger.error("Failed to parse JSON from get_match_report response.")
+    except Exception as e:
+        logger.error(f"Error in get_match_report: {e}", exc_info=True)
+    
+    return None
 
