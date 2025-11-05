@@ -30,7 +30,7 @@ from models.interview import Interview  # <-- Import Interview model
 from sqlalchemy.exc import IntegrityError 
 from datetime import datetime
 import logging
-from services.openai_service import get_match_report
+from services.openai_service import get_match_report,get_answer_from_resume
 
 from streamlit_searchbox import st_searchbox
 import re
@@ -168,7 +168,54 @@ def render_manager():
                         )
                         .all()
                     )
+                st.markdown("---")
+                with st.container(border=True):
+                    st.subheader(f"💬 Chat with {review.name}'s Resume")
+                    
+                    # Create a unique session state key for this candidate's chat history
+                    chat_key = f"chat_history_{review.id}_{review.interview_id}"
+                    if chat_key not in st.session_state:
+                        st.session_state[chat_key] = []
 
+                    # Display existing chat messages
+                    for message in st.session_state[chat_key]:
+                        with st.chat_message(message["role"]):
+                            st.markdown(message["content"])
+
+                    # Chat input box
+                    if prompt := st.chat_input(f"Ask a question about {review.name}'s resume for {review.job_title}..."):
+                        # 1. Add user's message to chat history and display it
+                        st.session_state[chat_key].append({"role": "user", "content": prompt})
+                        with st.chat_message("user"):
+                            st.markdown(prompt)
+
+                        # 2. Get the AI's response
+                        with st.chat_message("assistant"):
+                            with st.spinner("Thinking..."):
+                                try:
+                                    # 2a. Retrieve the resume text
+                                    with contextlib.closing(next(get_db())) as db_chat:
+                                        resume_text = db_chat.query(Candidate.resume).filter(
+                                            Candidate.id == review.id
+                                        ).scalar()
+                                    
+                                    if not resume_text:
+                                        st.error("Could not find resume text for this candidate.")
+                                    else:
+                                        # 2b. Call the AI service
+                                        response = get_answer_from_resume(
+                                            resume_text=resume_text,
+                                            user_question=prompt
+                                        )
+                                        
+                                        # 2c. Add AI response to history and display it
+                                        st.session_state[chat_key].append({"role": "assistant", "content": response})
+                                        st.markdown(response)
+
+                                except Exception as e:
+                                    response = f"Sorry, an error occurred: {e}"
+                                    st.session_state[chat_key].append({"role": "assistant", "content": response})
+                                    st.error(response)
                 if not answers:
                     st.warning("No individual answers found for this candidate.")
                     continue

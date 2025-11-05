@@ -456,3 +456,60 @@ def get_match_report(resume_text: str, job_description: str) -> Optional[Dict[st
     
     return None
 
+
+def get_answer_from_resume(resume_text: str, user_question: str) -> str:
+    """
+    Answers a user's question based *only* on the provided resume text.
+    (This is the "Ask the Resume" chatbot function).
+    """
+    if not OPENAI_API_KEY:
+        logger.error("OPENAI_API_KEY not set.")
+        return "Error: The AI service is not configured."
+
+    system_prompt = (
+        "You are a helpful HR assistant. Your only job is to answer questions "
+        "about a candidate's resume. You must answer *only* using the information "
+        "provided in the 'Resume Text' below. "
+        "Do not make assumptions or add any information that is not in the resume. "
+        "If the answer is not in the resume, you MUST say 'I cannot find that information in the resume.' "
+        "Keep your answers concise."
+    )
+    user_prompt = f"""
+    **Resume Text:**
+    ---
+    {resume_text}
+    ---
+
+    **Manager's Question:**
+    {user_question}
+
+    **Answer:**
+    """
+
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0.0, # Be factual
+    }
+
+    try:
+        with httpx.Client(timeout=45.0) as client:
+            OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
+            response = client.post(OPENAI_API_URL, headers=headers, json=payload)
+            response.raise_for_status()
+
+            response_data = response.json()
+            content = response_data.get("choices", [{}])[0].get("message", {}).get("content")
+
+            return content or "Sorry, I could not generate a response."
+
+    except Exception as e:
+        logger.error(f"Error in get_answer_from_resume: {e}", exc_info=True)
+        return f"Sorry, an error occurred while processing your request: {e}"
