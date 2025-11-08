@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import text, distinct, func
 from services.job_service import create_job
 from services.candidate_service import create_candidate
+from services import feedback_service, question_service
 import fitz  # PyMuPDF
 from pathlib import Path
 import uuid
@@ -26,6 +27,8 @@ from models.job import Job
 from models.candidate import Candidate
 from models.candidate_answer import CandidateAnswer
 from models.question import Question
+from models.user import User
+from models.question_feedback import QuestionFeedback
 from models.interview import Interview  # <-- Import Interview model
 from sqlalchemy.exc import IntegrityError 
 from datetime import datetime
@@ -583,7 +586,7 @@ def render_generate_questions_page():
     st.session_state.setdefault("genq_selected_candidate_info", None) # Stores (code, name, id)
     st.session_state.setdefault("genq_selected_job_code", None)
     # Re-use existing state for generated questions if desired, or use new keys
-    st.session_state.setdefault("generated_questions_api", []) # Use a different key if keeping knowledge bank tab
+    st.session_state.setdefault("generated_questions_api", [])
     st.session_state.setdefault("current_job_code_api", None)  # Use a different key
     st.session_state.setdefault("edits_pending_api", {})      # Use a different key
     st.session_state.setdefault("to_delete_indices_api", [])  # Use a different key
@@ -621,12 +624,13 @@ def render_generate_questions_page():
     st.markdown("##### 2. Select Pending Interview / Job")
     pending_jobs_for_candidate = []
     selected_job_code = st.session_state.genq_selected_job_code # Get current selection
- 
+
     with contextlib.closing(next(get_db())) as db:
         pending_interviews_query = (
-            db.query(Job.id,Job.job_code, Job.title) # Select Job details needed for display/return
+            # --- FIX: Fetch Interview.id along with Job details ---
+            db.query(Interview.id, Job.id, Job.job_code, Job.title)
             .join(Interview, Job.id == Interview.job_id)
-            .filter(Interview.candidate_id == candidate_id_for_query) # Filter by selected candidate ID
+            .filter(Interview.candidate_id == candidate_id_for_query)
             .filter(Interview.status == "Pending")
             .order_by(Job.title) # Optional: Order the list
             .all()
@@ -645,9 +649,9 @@ def render_generate_questions_page():
             key="genq_job_searchbox_v3", # Unique key
             data=pending_jobs_for_candidate,
             # Display job code and title
-            display_fn=lambda x: f"{x[1]}_{x[2]}",
-            # Return the job_code
-            return_fn=lambda x: x if x else None
+            display_fn=lambda x: f"{x[2]}_{x[3]}", # x[2] is job_code, x[3] is title
+            # --- FIX: Return the whole tuple, which now includes interview_id ---
+            return_fn=lambda x: x if x else None # x will be (interview_id, job_id, job_code, title)
         )
         if job_selection != st.session_state.genq_selected_job_code:
             st.session_state.genq_selected_job_code = job_selection
@@ -655,7 +659,7 @@ def render_generate_questions_page():
 
         if st.session_state.genq_selected_job_code:
              st.success(f"Selected Job: **{st.session_state.genq_selected_job_code[1]}**({st.session_state.genq_selected_job_code[2]})")
-        else:
+        else: # Typo fix: was 'aleays'
              st.info("Select a pending interview/job for the chosen candidate.")
     
     st.markdown("---")
@@ -667,28 +671,31 @@ def render_generate_questions_page():
     can_generate = bool(st.session_state.genq_selected_candidate_info and st.session_state.genq_selected_job_code)
 
     if st.button("Generate Questions", disabled=not can_generate,type='primary'):
-        job_code_to_use = st.session_state.genq_selected_job_code[0]
+        # --- FIX: Extract job_id and interview_id from the selection ---
+        selection = st.session_state.genq_selected_job_code
+        interview_id_to_use = selection[0]
+        job_id_to_use = selection[1]
         job_description = None
 
         # Fetch the description ONLY from the selected JOB CODE
         with contextlib.closing(next(get_db())) as db:
-            selected_job_obj = db.query(Job.description).filter(Job.id == job_code_to_use).first()
+            selected_job_obj = db.query(Job.description).filter(Job.id == job_id_to_use).first()
             if selected_job_obj:
                 job_description = selected_job_obj.description
             else:
-                st.error(f"Critical Error: Could not find details for the selected job code: {job_code_to_use}")
+                st.error(f"Critical Error: Could not find details for the selected job.")
                 st.stop() # Stop if job vanished somehow
 
         if job_description:
             st.info(f"Using description from selected Job: {st.session_state.genq_selected_job_code[1]}")
-            st.session_state["current_job_code_api"] = job_code_to_use # Store for saving
+            st.session_state["current_interview_id_api"] = interview_id_to_use # Store for saving
 
             with st.spinner("Generating questions..."):
                 try:
-                    # Make sure generate_knowledge_for_tech exists and works
-                    questions_data = generate_knowledge_for_tech(
-                        job_description, n_questions=n_questions
-                    )
+                    with contextlib.closing(next(get_db())) as db:
+                        questions_data = generate_knowledge_for_tech(
+                            db, job_description,job_id=job_id_to_use, n_questions=n_questions
+                        )
 
                     # --- Clear old edit/display state BEFORE setting new questions ---
                     keys_to_delete = [k for k in st.session_state if k.startswith(("edit_q_api_", "edit_a_api_", "edit_k_api_", "edit_toggle_api_", "delete_btn_api_"))]
@@ -720,7 +727,7 @@ def render_generate_questions_page():
                      st.exception(exc)
                      st.session_state["generated_questions_api"] = [] # Clear
         else:
-             st.warning(f"Job description for '{job_code_to_use}' is empty. Cannot generate questions.")
+             st.warning(f"Job description for the selected job is empty. Cannot generate questions.")
              st.session_state["generated_questions_api"] = [] # Clear
 
     elif not can_generate:
@@ -805,13 +812,29 @@ def render_generate_questions_page():
                 if kws: st.markdown(f"**Keywords:** {', '.join(kws)}")
 
                 edit_key = f"edit_toggle_api_{idx}"
-                col_left, col_right = st.columns([1, 1])
+                col_left, col_right, col_feedback = st.columns([1, 1, 2])
                 with col_left:
-                    # Checkbox value comes from session state
                     st.checkbox("Edit", key=edit_key, help="Toggle to edit this Q/A")
                 with col_right:
-                    # Delete uses on_click callback
                     st.button("🗑️ Delete", key=f"delete_btn_api_{idx}", on_click=_mark_delete_api, args=(idx,))
+
+                with col_feedback:
+                    thumb_col1, thumb_col2 = st.columns(2)
+                    with thumb_col1:
+                        if st.button("👍", key=f"thumb_up_{idx}"):
+                            st.session_state.generated_questions_api[idx]['manager_feedback'] = {'is_good': True}
+                            st.toast("Thanks for your feedback!")
+                    with thumb_col2:
+                        if st.button("👎", key=f"thumb_down_{idx}"):
+                            st.session_state[f"show_feedback_input_{idx}"] = True
+
+                if st.session_state.get(f"show_feedback_input_{idx}"):
+                    feedback_text = st.text_input("Please provide your feedback", key=f"feedback_text_{idx}")
+                    if st.button("Submit Feedback", key=f"submit_feedback_{idx}"):
+                        st.session_state.generated_questions_api[idx]['manager_feedback'] = {'is_good': False, 'feedback': feedback_text}
+                        st.session_state[f"show_feedback_input_{idx}"] = False
+                        st.toast("Feedback submitted!")
+
 
                 # Edit mode display
                 if st.session_state.get(edit_key, False):
@@ -834,27 +857,47 @@ def render_generate_questions_page():
         st.markdown("---")
         if st.button("✅ Approve & Send to Candidate",type="primary"):
             gen_qas_to_save = st.session_state.get("generated_questions_api", [])
-            job_code_to_save = st.session_state.get("current_job_code_api") # Use API-specific key
+            interview_id_to_save = st.session_state.get("current_interview_id_api")
 
             if not gen_qas_to_save:
                 st.info("No generated questions to save.")
-            elif not job_code_to_save:
+            elif not interview_id_to_save:
                  st.error("Cannot save: Job code is missing. Please regenerate questions.")
             else:
-                with st.spinner(f"Saving {len(gen_qas_to_save)} questions to database for job {job_code_to_save}..."):
+                with st.spinner(f"Saving {len(gen_qas_to_save)} questions to database for job {st.session_state.genq_selected_job_code[2]}..."):
                     with contextlib.closing(next(get_db())) as db:
                         try:
+                            manager_email = st.session_state.get("user_email")
+                            manager = db.query(User).filter(User.email == manager_email).first()
+                            if not manager:
+                                st.error("Could not identify your user session. Please log in again.")
+                                return
+
+                            # --- FIX: Delete old questions for this specific interview ---
+                            # This prevents duplicates if the manager re-generates questions for the same interview.
+                            db.query(Question).filter(Question.interview_id == interview_id_to_save).delete(synchronize_session=False)
+                            db.flush()
+                            # --- End of fix ---
+
                             inserted = 0
                             for idx, qa_save in enumerate(gen_qas_to_save):
-                                # (Your existing Question object creation logic...)
                                 q_row = Question(
-                                    job_id=job_code_to_save, # Use correct job code
+                                    interview_id=interview_id_to_save, # <-- Link to interview_id
                                     question_text=qa_save.get("question", ""),
                                     model_answer=qa_save.get("answer", ""),
                                     keywords=qa_save.get("keywords", []),
-                                    model_answer_embedding=None, # Embedding logic below
+                                    model_answer_embedding=None,
                                 )
-                                # (Your existing embedding generation logic...)
+
+                                feedback_data = qa_save.get("manager_feedback")
+                                if feedback_data:
+                                    feedback_obj = QuestionFeedback(
+                                        manager_id=manager.id,
+                                        is_good=feedback_data.get('is_good'),
+                                        feedback=feedback_data.get('feedback')
+                                    )
+                                    q_row.feedback.append(feedback_obj)
+
                                 a_text_save = qa_save.get("answer", "")
                                 if a_text_save:
                                     try:
@@ -876,7 +919,7 @@ def render_generate_questions_page():
                             st.session_state["generated_questions_api"] = []
                             st.session_state["edits_pending_api"] = {}
                             st.session_state["to_delete_indices_api"] = []
-                            st.session_state["current_job_code_api"] = None
+                            st.session_state["current_interview_id_api"] = None
 
                         except Exception as e:
                             try: db.rollback()

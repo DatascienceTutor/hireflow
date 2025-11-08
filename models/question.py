@@ -1,5 +1,5 @@
 """
-Question model: Stores a *specific* question assigned to a *specific* Job.
+Question model: Stores a *specific* question assigned to a *specific* Interview.
 """
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.sqlite import JSON
@@ -20,9 +20,9 @@ class Question(Base):
 
     # Database-level Links
     
-    # Link to the Job. If the Job is deleted, this Question is deleted.
-    job_id = Column(
-        Integer, ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True
+    # Link to the Interview. If the Interview is deleted, this Question is deleted.
+    interview_id = Column(
+        Integer, ForeignKey("interviews.id", ondelete="CASCADE"), nullable=False, index=True
     )
     
     # Link to the master bank. If the master Q is deleted, set this to NULL.
@@ -31,13 +31,17 @@ class Question(Base):
     )
 
     # ORM Relationships
-    job = relationship("Job", back_populates="questions")
+    interview = relationship("Interview", back_populates="questions")
     knowledge_question = relationship("KnowledgeQuestion", back_populates="copied_questions")
     
     # If this Question is deleted, all CandidateAnswers for it are deleted.
     answers = relationship(
         "CandidateAnswer", back_populates="question", cascade="all, delete-orphan"
     )
-
+    
+    feedback = relationship(
+        "QuestionFeedback", back_populates="question", cascade="all, delete-orphan"
+    )
+    
     def __repr__(self) -> str:
-        return f"<Question {self.id} for Job ID {self.job_id}>"
+        return f"<Question {self.id} for Interview ID {self.interview_id}>"

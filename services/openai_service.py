@@ -17,6 +17,12 @@ import time
 import logging
 from typing import List, Dict, Any, Optional
 import requests
+from sqlalchemy.orm import Session
+from models.question import Question
+from models.interview import Interview
+from models.question_feedback import QuestionFeedback
+from db.session import get_db
+
 
 import openai
 from dotenv import load_dotenv
@@ -168,7 +174,7 @@ def _build_generation_prompt(job_description: str, n_questions: int = 5) -> str:
 
 
 def generate_knowledge_for_tech(
-    job_description: str, n_questions: int = 5, max_retries: int = 2
+    db: Session, job_description: str, job_id: int, n_questions: int = 5, max_retries: int = 2
 ) -> List[Dict[str, Any]]:
     """
     Generate n_questions knowledge items for the given 'tech' using OpenAI chat completions.
@@ -285,8 +291,21 @@ def generate_knowledge_for_tech(
                         "keywords": [str(k).strip() for k in (kws or [])],
                     }
                 )
+            bad_question_texts_query = (
+                db.query(Question.question_text) # Select the text of the bad question
+                .join(QuestionFeedback, Question.id == QuestionFeedback.question_id) # Join with feedback
+                .join(Interview, Question.interview_id == Interview.id) # Join Question -> Interview
+                .filter(QuestionFeedback.is_good == False) # Filter for "bad" feedback
+                .filter(Interview.job_id == job_id) # Filter by the correct job_id from the Interview table
+            )
+            bad_question_texts = {q[0].lower().strip() for q in bad_question_texts_query.all()}
 
-            return items
+            filtered_items = [
+                item for item in items
+                if item['question'].lower().strip() not in bad_question_texts
+            ]
+
+            return filtered_items
 
         except Exception as exc:
             logging.exception("OpenAI generation attempt failed: %s", exc)

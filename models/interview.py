@@ -37,6 +37,11 @@ class Interview(Base):
     answers = relationship(
         "CandidateAnswer", back_populates="interview", cascade="all, delete-orphan"
     )
+    
+    # If this Interview is deleted, all Questions associated with it are also deleted.
+    questions = relationship(
+        "Question", back_populates="interview", cascade="all, delete-orphan"
+    )
 
 
     def __repr__(self) -> str:

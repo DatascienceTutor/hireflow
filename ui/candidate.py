@@ -155,10 +155,11 @@ def render_candidate_dashboard():
 
     # --- Initialization: load questions once ---
     if "interview_questions" not in st.session_state:
-        selected_job_id = st.session_state.get("selected_job_code")
+        # --- FIX: Use the selected_interview_id to fetch questions ---
+        selected_interview_id = st.session_state.get("selected_interview_id")
         with contextlib.closing(next(get_db())) as db:
             questions_obj_list: List[Question] = get_column_value_by_condition(
-                db, Question, "job_id", selected_job_id, target_column=None, multiple=True
+                db, Question, "interview_id", selected_interview_id, target_column=None, multiple=True
             )
 
         if not questions_obj_list:

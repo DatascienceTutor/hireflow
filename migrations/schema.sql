@@ -88,7 +88,7 @@ CREATE TABLE knowledge_questions (
 
 -- -----------------------------------------------------------------
 -- Table: questions
--- Stores *specific* questions assigned to a *specific* job.
+-- Stores *specific* questions assigned to a *specific* interview.
 -- -----------------------------------------------------------------
 CREATE TABLE questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -98,13 +98,13 @@ CREATE TABLE questions (
     model_answer_embedding TEXT, -- Stored as a JSON string
     created_at DATETIME NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     
-    -- Link to the Job (if Job is deleted, these questions are deleted)
-    job_id INTEGER NOT NULL,
+    -- Link to the Interview (if Interview is deleted, these questions are deleted)
+    interview_id INTEGER NOT NULL,
     
     -- Optional link to the master bank (if master is deleted, set this to NULL)
     knowledge_question_id INTEGER,
     
-    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
+    FOREIGN KEY (interview_id) REFERENCES interviews(id) ON DELETE CASCADE,
     FOREIGN KEY (knowledge_question_id) REFERENCES knowledge_questions(id) ON DELETE SET NULL
 );
 
@@ -166,7 +166,7 @@ CREATE TABLE candidate_answers (
 -- -----------------------------------------------------------------
 CREATE INDEX IF NOT EXISTS ix_jobs_manager_email ON jobs (manager_email);
 CREATE INDEX IF NOT EXISTS ix_knowledge_questions_technology ON knowledge_questions (technology);
-CREATE INDEX IF NOT EXISTS ix_questions_job_id ON questions (job_id);
+CREATE INDEX IF NOT EXISTS ix_questions_interview_id ON questions (interview_id);
 CREATE INDEX IF NOT EXISTS ix_interviews_job_id ON interviews (job_id);
 CREATE INDEX IF NOT EXISTS ix_interviews_candidate_id ON interviews (candidate_id);
 CREATE INDEX IF NOT EXISTS ix_interviews_status ON interviews (status);

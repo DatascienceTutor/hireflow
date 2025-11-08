@@ -24,9 +24,6 @@ class Job(Base):
     interviews = relationship(
         "Interview", back_populates="job", cascade="all, delete-orphan"
     )
-    questions = relationship(
-        "Question", back_populates="job", cascade="all, delete-orphan"
-    )
 
     def __repr__(self) -> str:
         return f"<Job {self.job_code} - {self.title}>"
