@@ -2,7 +2,7 @@
 Interview model: The central "junction" table.
 Links a Candidate to a Job.
 """
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime,Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.session import Base
@@ -14,6 +14,12 @@ class Interview(Base):
     status = Column(String(50), default="Pending", index=True)
     evaluation_status = Column(String(50), default="Not Evaluated")
     final_score = Column(Float, nullable=True)
+    final_selection_status = Column(
+        Enum("Undecided", "Selected", "Rejected", name="selection_status_enum"),
+        nullable=False,
+        default="Undecided",
+        server_default="Undecided"
+    )
     scheduled_at = Column(String(50), nullable=True) # Kept as string per original
     created_at = Column(DateTime, server_default=func.now())
 

@@ -347,9 +347,9 @@ def evaluate_answer_with_llm(question_text: str, model_answer: str, candidate_an
         "1. First, determine if the candidate's answer is a *relevant attempt* to answer the question.\n"
         "2. **If the answer is irrelevant, blank, nonsensical, or just metadata (like 'I don't know' or 'Interview Question'), you MUST give a score of 0.**\n"
         "3. If the answer *is* a relevant attempt, compare it to the model answer and provide a score from 0 to 100 based on its quality, accuracy, and completeness.\n"
-        "4. Provide concise, constructive feedback explaining the score.\n\n"
+        "4. Provide detailed, constructive feedback broken down into four specific areas.\n\n"
         "You MUST respond in this specific JSON format:\n"
-        '{"score": <number>, "feedback": "<string>"}'
+         '{"score": <number>, "feedback": {"technical_accuracy": "<string>", "clarity_and_communication": "<string>", "what_was_good": "<string>", "what_was_missing": "<string>"}}'
     )
     
     user_prompt = f"""

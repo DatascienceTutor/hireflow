@@ -1,4 +1,4 @@
 UPDATE candidates 
-SET email = 'example@gmail.com' 
-WHERE candidate_code = 'CAND-2025-001';
+SET email = 'sreejithmvpersonal@gmail.com' 
+WHERE candidate_code = 'CAND-2025-002';
 

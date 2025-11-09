@@ -44,6 +44,23 @@ from services.common import (
     create_searchbox,
 )
 
+def update_interview_selection_status(interview_id: int, status: str) -> bool:
+    """
+    Updates the final selection status for a given interview.
+    """
+    try:
+        with contextlib.closing(next(get_db())) as db:
+            interview = db.query(Interview).filter(Interview.id == interview_id).first()
+            if interview:
+                interview.final_selection_status = status
+                db.commit()
+                return True
+            return False
+    except Exception as e:
+        logging.error(f"Error updating interview status: {e}")
+        return False
+
+
 # --- Main Dashboard Tab (Renamed and Updated) ---
 logger = logging.getLogger(__name__)
 
@@ -106,7 +123,8 @@ def render_manager():
                     Job.title.label("job_title"),
                     Interview.status,
                     Interview.evaluation_status,
-                    Interview.final_score,
+                    Interview.final_score, 
+                    Interview.final_selection_status,
                     Interview.id.label("interview_id")
                 )
                 .join(Candidate, Candidate.id == Interview.candidate_id)
@@ -142,8 +160,18 @@ def render_manager():
                 else "**N/A**"
             )
             
+            # --- MODIFICATION: Add color to the selection status ---
+            status = review.final_selection_status
+            if status == "Selected":
+                selection_status_display = f"| Selection: :green[**{status}**]"
+            elif status == "Rejected":
+                selection_status_display = f"| Selection: :red[**{status}**]"
+            else: # Undecided
+                selection_status_display = f"| Selection: **{status}**"
+            # --- END MODIFICATION ---
+
             expander_title = (
-                f"{title} | Status: **{review.status}** | Score: {score}"
+                f"{title} | Status: **{review.status}** | Score: {score} {selection_status_display}"
             )
 
             with st.expander(expander_title):
@@ -239,7 +267,42 @@ def render_manager():
                         f"**Score:** `{answer.llm_score or 'Not Scored'}`"
                     )
                     st.markdown(f"**Feedback:**")
-                    st.info(f"{answer.feedback or 'No feedback provided.'}")
+                    feedback_data = answer.feedback
+                    if isinstance(feedback_data, dict):
+                        # If feedback is a dictionary, display it in sections
+                        with st.container(border=True):
+                            st.markdown(f"**👍 What Was Good:**\n\n_{feedback_data.get('what_was_good', 'N/A')}_")
+                            st.markdown("---")
+                            st.markdown(f"**🤔 What Was Missing:**\n\n_{feedback_data.get('what_was_missing', 'N/A')}_")
+                            st.markdown("---")
+                            st.markdown(f"**⚙️ Technical Accuracy:**\n\n_{feedback_data.get('technical_accuracy', 'N/A')}_")
+                            st.markdown("---")
+                            st.markdown(f"**🗣️ Clarity & Communication:**\n\n_{feedback_data.get('clarity_and_communication', 'N/A')}_")
+                    elif feedback_data:
+                        # Fallback for old, simple string feedback
+                        st.info(f"{feedback_data}")
+                    else:
+                        st.info("No feedback provided.")
+                
+                # --- FINAL SELECTION BUTTONS (MOVED HERE) ---
+                st.markdown("---")
+                st.markdown("##### Final Decision")
+                
+                # Only show buttons if the decision is still 'Undecided'
+                if review.final_selection_status == "Undecided":
+                    cols = st.columns(2)
+                    with cols[0]:
+                        if st.button("✅ Select Candidate", key=f"select_{review.interview_id}", type="primary"):
+                            if update_interview_selection_status(review.interview_id, "Selected"):
+                                st.success(f"Marked {review.name} as 'Selected' for this role.")
+                                st.rerun()
+                    with cols[1]:
+                        if st.button("❌ Reject Candidate", key=f"reject_{review.interview_id}"):
+                            if update_interview_selection_status(review.interview_id, "Rejected"):
+                                st.warning(f"Marked {review.name} as 'Rejected' for this role.")
+                                st.rerun()
+                else:
+                    st.info(f"Decision for this interview has been recorded as: **{review.final_selection_status}**")
 
     except Exception as e:
         st.error(f"An error occurred while fetching candidate reviews:")

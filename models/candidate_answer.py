@@ -16,7 +16,7 @@ class CandidateAnswer(Base):
     answer_embedding = Column(JSON, nullable=True)
     semantic_similarity = Column(Float, nullable=True)
     llm_score = Column(Float, nullable=True)
-    feedback = Column(Text, nullable=True)
+    feedback = Column(JSON, nullable=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
 
     # Database-level Links
