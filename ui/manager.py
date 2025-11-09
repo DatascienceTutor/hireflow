@@ -18,6 +18,7 @@ from sqlalchemy import text, distinct, func
 from services.job_service import create_job
 from services.candidate_service import create_candidate
 from services import feedback_service, question_service
+from services.report_service import generate_summary_report_pdf # <-- IMPORT NEW SERVICE
 import fitz  # PyMuPDF
 from pathlib import Path
 import uuid
@@ -124,6 +125,7 @@ def render_manager():
                     Interview.status,
                     Interview.evaluation_status,
                     Interview.final_score, 
+                    Interview.match_report, # <-- FETCH THE MATCH REPORT
                     Interview.final_selection_status,
                     Interview.id.label("interview_id")
                 )
@@ -175,13 +177,8 @@ def render_manager():
             )
 
             with st.expander(expander_title):
-                st.subheader("Candidate Interview Reviews")
-                st.write("Review completed interviews and their scores.")
-                st.write(f"#### Detailed Review for {review.name}")
-                st.write(f"**Overall Score (0-100):** {score}")
-                st.write(f"**Evaluation Status:** {review.evaluation_status}")
-
-                # This inner query to get individual answers is still correct
+                # --- FIX: Query for answers FIRST ---
+                # This makes the 'answers' variable available for both the PDF report and the UI display.
                 with contextlib.closing(next(get_db())) as db_inner:
                     answers = (
                         db_inner.query(
@@ -199,6 +196,40 @@ def render_manager():
                         )
                         .all()
                     )
+                # --- END FIX ---
+
+                # --- ADD DOWNLOAD BUTTON ---
+                cols_top = st.columns([4, 1])
+                with cols_top[1]:
+                    # Prepare data for the report
+                    report_data = {
+                        "candidate_data": {"name": review.name, "candidate_code": review.candidate_code},
+                        "job_data": {"title": review.job_title},
+                        "interview_data": {
+                            "final_score": review.final_score,
+                            "final_selection_status": review.final_selection_status,
+                            "match_report": review.match_report
+                        },
+                        "answers_data": [dict(row._mapping) for row in answers] # Convert answers to dicts
+                    }
+                    
+                    pdf_bytes = generate_summary_report_pdf(**report_data)
+                    
+                    st.download_button(
+                        label="📄 Download Report",
+                        data=pdf_bytes,
+                        file_name=f"Summary_Report_{review.name.replace(' ','_')}_{review.candidate_code}.pdf",
+                        mime="application/pdf",
+                        key=f"download_{review.interview_id}"
+                    )
+                # --- END DOWNLOAD BUTTON ---
+
+
+                st.subheader("Candidate Interview Reviews")
+                st.write("Review completed interviews and their scores.")
+                st.write(f"#### Detailed Review for {review.name}")
+                st.write(f"**Overall Score (0-100):** {score}")
+                st.write(f"**Evaluation Status:** {review.evaluation_status}")
                 st.markdown("---")
                 with st.container(border=True):
                     st.subheader(f"💬 Chat with {review.name}'s Resume")
@@ -305,6 +336,7 @@ def render_manager():
                     st.info(f"Decision for this interview has been recorded as: **{review.final_selection_status}**")
 
     except Exception as e:
+        st.error(f"An error occurred in the main dashboard:") # More specific error
         st.error(f"An error occurred while fetching candidate reviews:")
         st.exception(e)
 
@@ -603,6 +635,7 @@ def render_assign_interview_page():
                         new_interview = Interview(
                             job_id=selected_job.id,
                             candidate_id=selected_candidate.id,
+                            match_report=st.session_state.get(analysis_key), # <-- SAVE THE REPORT
                             status="Pending", # Or "Assigned"
                             evaluation_status="Not Evaluated",
                             created_at=datetime.utcnow()
@@ -612,6 +645,7 @@ def render_assign_interview_page():
                         st.success(f"Interview for '{selected_job.title}' successfully assigned to {selected_candidate.name}!")
                         st.balloons()
                         # Optionally clear selections or rerun? Might be better to keep selections
+                        st.session_state[analysis_key] = None # Clear the report from session
                         # st.rerun()
 
             except IntegrityError:

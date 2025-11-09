@@ -2,7 +2,7 @@
 Interview model: The central "junction" table.
 Links a Candidate to a Job.
 """
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime,Enum
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.session import Base
@@ -20,6 +20,7 @@ class Interview(Base):
         default="Undecided",
         server_default="Undecided"
     )
+    match_report = Column(JSON, nullable=True) # <-- ADD THIS LINE
     scheduled_at = Column(String(50), nullable=True) # Kept as string per original
     created_at = Column(DateTime, server_default=func.now())
 
