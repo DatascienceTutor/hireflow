@@ -5,6 +5,24 @@ from fpdf import FPDF
 from typing import Dict, Any, List
 from datetime import datetime
 
+def clean_text(text: Any) -> str:
+    """
+    Sanitizes text to remove unsupported characters for the standard FPDF font (Latin-1).
+    Replaces smart quotes and other common Unicode characters with ASCII equivalents.
+    """
+    if text is None:
+        return ""
+    text = str(text)
+    replacements = {
+        '\u2018': "'", '\u2019': "'",  # Single quotes
+        '\u201c': '"', '\u201d': '"',  # Double quotes
+        '\u2013': '-', '\u2014': '-',  # Dashes
+        '\u2026': '...',               # Ellipsis
+    }
+    for char, replacement in replacements.items():
+        text = text.replace(char, replacement)
+    return text.encode('latin-1', 'replace').decode('latin-1')
+
 class PDF(FPDF):
     def header(self):
         self.set_font('Helvetica', 'B', 15)
@@ -19,18 +37,18 @@ class PDF(FPDF):
     def chapter_title(self, title):
         self.set_font('Helvetica', 'B', 12)
         self.set_fill_color(230, 230, 230)
-        self.cell(0, 6, title, 0, 1, 'L', 1)
+        self.cell(0, 6, clean_text(title), 0, 1, 'L', 1)
         self.ln(4)
 
     def chapter_body(self, body):
         self.set_font('Helvetica', '', 10)
-        self.multi_cell(0, 5, body)
+        self.multi_cell(0, 5, clean_text(body))
         self.ln()
 
     def score_metric(self, title, value, color):
         self.set_font('Helvetica', 'B', 11)
         self.set_text_color(*color)
-        self.cell(0, 6, f"{title}: {value}", ln=1) # FIX: Explicitly add a line break
+        self.cell(0, 6, clean_text(f"{title}: {value}"), ln=1) # FIX: Explicitly add a line break
         self.set_text_color(0, 0, 0) # Reset color
         self.ln(2)
 
@@ -51,12 +69,12 @@ def generate_summary_report_pdf(
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(40, 7, "Candidate Name:")
     pdf.set_font('Helvetica', '', 11)
-    pdf.cell(0, 7, candidate_data.get('name', 'N/A'), 0, 1)
+    pdf.cell(0, 7, clean_text(candidate_data.get('name', 'N/A')), 0, 1)
 
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(40, 7, "Job Title:")
     pdf.set_font('Helvetica', '', 11)
-    pdf.cell(0, 7, job_data.get('title', 'N/A'), 0, 1)
+    pdf.cell(0, 7, clean_text(job_data.get('title', 'N/A')), 0, 1)
 
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(40, 7, "Final Score:")
@@ -67,7 +85,7 @@ def generate_summary_report_pdf(
     pdf.set_font('Helvetica', 'B', 11)
     pdf.cell(40, 7, "Final Decision:")
     pdf.set_font('Helvetica', '', 11)
-    pdf.cell(0, 7, interview_data.get('final_selection_status', 'N/A'), 0, 1)
+    pdf.cell(0, 7, clean_text(interview_data.get('final_selection_status', 'N/A')), 0, 1)
     pdf.ln(10)
 
     # --- Section 2: AI Resume Match Report ---
@@ -97,11 +115,11 @@ def generate_summary_report_pdf(
     pdf.chapter_title('Detailed Question & Answer Review')
     for i, answer in enumerate(answers_data):
         pdf.set_font('Helvetica', 'B', 11)
-        pdf.multi_cell(0, 5, f"Q{i+1}: {answer.get('question_text', 'N/A')}")
+        pdf.multi_cell(0, 5, clean_text(f"Q{i+1}: {answer.get('question_text', 'N/A')}"))
         pdf.ln(2)
 
         pdf.set_font('Helvetica', 'I', 10)
-        pdf.multi_cell(0, 5, f"Candidate's Answer: {answer.get('answer_text', 'N/A')}")
+        pdf.multi_cell(0, 5, clean_text(f"Candidate's Answer: {answer.get('answer_text', 'N/A')}"))
         pdf.ln(3)
 
         pdf.score_metric("Score", f"{answer.get('llm_score', 'N/A')}/100", (0,0,0))
@@ -113,20 +131,20 @@ def generate_summary_report_pdf(
             
             pdf.set_font('Helvetica', 'I', 10)
             pdf.set_fill_color(240, 255, 240) # Light green
-            pdf.multi_cell(0, 5, f"What Was Good: {feedback.get('what_was_good', 'N/A')}", border=0, align='L', fill=True, ln=1)
+            pdf.multi_cell(0, 5, clean_text(f"What Was Good: {feedback.get('what_was_good', 'N/A')}"), border=0, align='L', fill=True, ln=1)
             
             pdf.set_fill_color(255, 240, 240) # Light red
-            pdf.multi_cell(0, 5, f"What Was Missing: {feedback.get('what_was_missing', 'N/A')}", border=0, align='L', fill=True, ln=1)
+            pdf.multi_cell(0, 5, clean_text(f"What Was Missing: {feedback.get('what_was_missing', 'N/A')}"), border=0, align='L', fill=True, ln=1)
             
             pdf.set_fill_color(245, 245, 245) # Light grey
-            pdf.multi_cell(0, 5, f"Technical Accuracy: {feedback.get('technical_accuracy', 'N/A')}", border=0, align='L', fill=True, ln=1)
-            pdf.multi_cell(0, 5, f"Clarity & Communication: {feedback.get('clarity_and_communication', 'N/A')}", border=0, align='L', fill=True, ln=1)
+            pdf.multi_cell(0, 5, clean_text(f"Technical Accuracy: {feedback.get('technical_accuracy', 'N/A')}"), border=0, align='L', fill=True, ln=1)
+            pdf.multi_cell(0, 5, clean_text(f"Clarity & Communication: {feedback.get('clarity_and_communication', 'N/A')}"), border=0, align='L', fill=True, ln=1)
 
         pdf.ln(8)
 
     # --- Finalize ---
     pdf.set_author("Hire Flow Platform")
-    pdf.set_title(f"Report for {candidate_data.get('name', 'candidate')}")
+    pdf.set_title(clean_text(f"Report for {candidate_data.get('name', 'candidate')}"))
     
     # Return the PDF as bytes
     return bytes(pdf.output(dest='S'))
